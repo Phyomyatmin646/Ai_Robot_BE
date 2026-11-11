@@ -29,3 +29,4 @@ export function requestLogger(request: FastifyRequest, reply: FastifyReply, done
 
   done();
 }
+

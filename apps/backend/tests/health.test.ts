@@ -18,3 +18,4 @@ describe('Health Check Logic', () => {
     expect(health.services.redis.status).toBe('connected');
   });
 });
+

@@ -32,3 +32,4 @@ export async function notificationRoutes(fastify: FastifyInstance): Promise<void
     handler: notificationController.markAllAsRead,
   });
 }
+

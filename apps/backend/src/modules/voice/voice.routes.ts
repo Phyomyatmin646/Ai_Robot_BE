@@ -13,3 +13,4 @@ export async function voiceRoutes(fastify: FastifyInstance): Promise<void> {
     handler: voiceController.getConfig,
   });
 }
+

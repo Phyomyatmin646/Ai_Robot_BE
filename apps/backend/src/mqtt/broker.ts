@@ -106,3 +106,4 @@ export async function stopMqttBroker(): Promise<void> {
   }
   logger.info('MQTT broker stopped cleanly');
 }
+

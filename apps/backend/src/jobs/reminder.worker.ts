@@ -75,3 +75,4 @@ export function startReminderWorker(): Worker {
 
   return worker;
 }
+

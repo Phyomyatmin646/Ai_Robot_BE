@@ -28,3 +28,4 @@ describe('MCP Tool System', () => {
     expect(result.formatted).toBeDefined();
   });
 });
+

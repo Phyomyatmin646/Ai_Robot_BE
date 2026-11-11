@@ -16,3 +16,4 @@ def setup_logger(name: str = "ai_services") -> logging.Logger:
     return logger
 
 logger = setup_logger()
+

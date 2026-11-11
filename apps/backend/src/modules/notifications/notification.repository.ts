@@ -25,3 +25,4 @@ export class NotificationRepository extends BaseRepository<INotification> {
 }
 
 export const notificationRepository = new NotificationRepository();
+

@@ -83,3 +83,4 @@ export async function deviceRoutes(fastify: FastifyInstance): Promise<void> {
     handler: deviceController.delete,
   });
 }
+

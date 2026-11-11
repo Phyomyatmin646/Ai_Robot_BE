@@ -41,3 +41,4 @@ export async function mcpRoutes(fastify: FastifyInstance): Promise<void> {
     handler: mcpController.getLogs,
   });
 }
+

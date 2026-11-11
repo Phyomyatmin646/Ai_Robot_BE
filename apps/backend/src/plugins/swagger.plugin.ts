@@ -80,3 +80,4 @@ This backend manages:
     transformStaticCSP: (header) => header,
   });
 });
+

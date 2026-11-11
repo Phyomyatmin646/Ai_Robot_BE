@@ -65,3 +65,4 @@ export async function reminderRoutes(fastify: FastifyInstance): Promise<void> {
     handler: reminderController.delete,
   });
 }
+

@@ -241,3 +241,4 @@ Language: ${this.configData.language || 'English'}.`,
     this.isConnected = false;
   }
 }
+

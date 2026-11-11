@@ -32,3 +32,4 @@ The Web Dashboard communicates with the backend via two interfaces:
 - **State Management:** Zustand / TanStack Query
 - **Real-Time Client:** `socket.io-client`
 - **Audio Visualizer:** Web Audio API (AudioContext, AnalyserNode)
+

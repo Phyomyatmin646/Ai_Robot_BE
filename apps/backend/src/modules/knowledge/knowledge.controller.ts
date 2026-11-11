@@ -53,3 +53,4 @@ export class KnowledgeController {
 }
 
 export const knowledgeController = new KnowledgeController();
+

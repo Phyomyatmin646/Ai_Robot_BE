@@ -21,3 +21,4 @@ For the complete technical firmware protocol and hardware specifications, refer 
 3. **Interruption (Barge-In):**
    - Real-time response cancellation when user speaks during robot playback.
    - Zero-lag audio streaming directly connected with Google Gemini Live API.
+

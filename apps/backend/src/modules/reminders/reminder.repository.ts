@@ -41,3 +41,4 @@ export class ReminderRepository extends BaseRepository<IReminder> {
 }
 
 export const reminderRepository = new ReminderRepository();
+

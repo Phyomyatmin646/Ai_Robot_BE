@@ -33,3 +33,4 @@ db.notifications.createIndex({ userId: 1, createdAt: -1 });
 db.knowledgechunks.createIndex({ content: 'text' });
 
 print('MongoDB collections and standard indexes created successfully.');
+

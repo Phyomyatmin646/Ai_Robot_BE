@@ -41,3 +41,4 @@ export async function settingsRoutes(fastify: FastifyInstance): Promise<void> {
     handler: settingsController.updateDeviceSettings,
   });
 }
+

@@ -50,3 +50,4 @@ export async function conversationRoutes(fastify: FastifyInstance): Promise<void
     handler: conversationController.delete,
   });
 }
+

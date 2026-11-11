@@ -29,3 +29,4 @@ export class ConversationRepository extends BaseRepository<IConversation> {
 }
 
 export const conversationRepository = new ConversationRepository();
+

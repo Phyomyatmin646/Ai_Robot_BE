@@ -60,3 +60,4 @@ export async function knowledgeRoutes(fastify: FastifyInstance): Promise<void> {
     handler: knowledgeController.delete,
   });
 }
+

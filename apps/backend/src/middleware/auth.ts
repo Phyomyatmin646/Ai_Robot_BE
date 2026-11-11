@@ -55,3 +55,4 @@ export async function authenticateDevice(request: FastifyRequest, _reply: Fastif
     throw new UnauthorizedError('Missing device authentication headers (x-device-id, x-device-key)');
   }
 }
+

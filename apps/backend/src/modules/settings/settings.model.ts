@@ -87,3 +87,4 @@ const DeviceSettingsSchema = new Schema<IDeviceSettings>(
 
 export const UserSettingsModel = mongoose.model<IUserSettings>('UserSettings', UserSettingsSchema);
 export const DeviceSettingsModel = mongoose.model<IDeviceSettings>('DeviceSettings', DeviceSettingsSchema);
+

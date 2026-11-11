@@ -50,3 +50,4 @@ docker compose ps
 
 echo "✅ Deployment completed successfully!"
 echo "Check logs with: docker compose logs -f"
+

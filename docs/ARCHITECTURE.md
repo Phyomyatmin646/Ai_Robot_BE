@@ -105,3 +105,4 @@ flowchart TD
 | Audio Recordings | MongoDB GridFS | Segmented 255KB chunks, streaming with HTTP 206 Partial Content |
 | Vector Chunks | MongoDB Atlas Vector Search | 768-dimension cosine similarity index with keyword fallback |
 | Job Queues | Redis (BullMQ) | Persistent delayed jobs for reminder notifications |
+

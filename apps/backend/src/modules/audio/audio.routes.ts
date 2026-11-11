@@ -41,3 +41,4 @@ export async function audioRoutes(fastify: FastifyInstance): Promise<void> {
     handler: audioController.delete,
   });
 }
+

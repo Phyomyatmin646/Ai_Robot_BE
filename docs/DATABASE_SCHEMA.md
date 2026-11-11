@@ -70,3 +70,4 @@ erDiagram
 - `chunkIndex`: Number
 - `tokenCount`: Number
 - `embedding`: Array<Number> (Vector Search index: 768 dimensions)
+

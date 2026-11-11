@@ -56,3 +56,4 @@ export async function userRoutes(fastify: FastifyInstance): Promise<void> {
     handler: userController.unlinkTelegram,
   });
 }
+

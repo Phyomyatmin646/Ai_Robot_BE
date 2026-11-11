@@ -132,3 +132,4 @@ const DeviceSessionSchema = new Schema<IDeviceSession>(
 
 export const DeviceModel = mongoose.model<IDevice>('Device', DeviceSchema);
 export const DeviceSessionModel = mongoose.model<IDeviceSession>('DeviceSession', DeviceSessionSchema);
+

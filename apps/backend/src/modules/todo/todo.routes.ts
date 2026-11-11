@@ -72,3 +72,4 @@ export async function todoRoutes(fastify: FastifyInstance): Promise<void> {
     handler: todoController.delete,
   });
 }
+

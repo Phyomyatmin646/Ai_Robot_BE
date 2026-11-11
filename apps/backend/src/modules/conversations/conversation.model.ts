@@ -78,3 +78,4 @@ MessageSchema.index({ conversationId: 1, createdAt: 1 });
 
 export const ConversationModel = mongoose.model<IConversation>('Conversation', ConversationSchema);
 export const MessageModel = mongoose.model<IMessage>('Message', MessageSchema);
+

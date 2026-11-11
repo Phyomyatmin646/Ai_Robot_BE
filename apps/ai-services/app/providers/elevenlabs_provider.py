@@ -64,3 +64,4 @@ class ElevenLabsProvider(TTSProvider):
 
 
 elevenlabs_provider = ElevenLabsProvider()
+

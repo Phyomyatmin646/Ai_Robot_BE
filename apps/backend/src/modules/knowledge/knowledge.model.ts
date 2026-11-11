@@ -75,3 +75,4 @@ KnowledgeChunkSchema.index({ content: 'text' });
 
 export const KnowledgeDocumentModel = mongoose.model<IKnowledgeDocument>('KnowledgeDocument', KnowledgeDocumentSchema);
 export const KnowledgeChunkModel = mongoose.model<IKnowledgeChunk>('KnowledgeChunk', KnowledgeChunkSchema);
+

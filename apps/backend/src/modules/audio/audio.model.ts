@@ -45,3 +45,4 @@ const AudioMetadataSchema = new Schema<IAudioMetadata>(
 AudioMetadataSchema.index({ userId: 1, createdAt: -1 });
 
 export const AudioMetadataModel = mongoose.model<IAudioMetadata>('AudioMetadata', AudioMetadataSchema);
+

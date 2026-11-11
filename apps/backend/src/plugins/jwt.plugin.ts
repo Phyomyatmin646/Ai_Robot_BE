@@ -11,3 +11,4 @@ export const jwtPlugin = fp(async (fastify: FastifyInstance) => {
     },
   });
 });
+

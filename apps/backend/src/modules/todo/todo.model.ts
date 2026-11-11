@@ -48,3 +48,4 @@ TodoSchema.index({ userId: 1, status: 1, dueDate: 1 });
 TodoSchema.index({ title: 'text', description: 'text' });
 
 export const TodoModel = mongoose.model<ITodo>('Todo', TodoSchema);
+

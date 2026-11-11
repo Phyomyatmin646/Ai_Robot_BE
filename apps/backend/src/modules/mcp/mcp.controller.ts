@@ -43,3 +43,4 @@ export class MCPController {
 }
 
 export const mcpController = new MCPController();
+

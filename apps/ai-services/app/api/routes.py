@@ -90,3 +90,4 @@ async def transcribe_speech(file: UploadFile = File(...), language: str = "en"):
     content = await file.read()
     transcript = await openai_provider.transcribe(content, language)
     return {"text": transcript}
+

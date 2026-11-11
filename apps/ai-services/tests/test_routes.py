@@ -24,3 +24,4 @@ def test_chat_endpoint():
     data = response.json()
     assert data["success"] is True
     assert "text" in data
+

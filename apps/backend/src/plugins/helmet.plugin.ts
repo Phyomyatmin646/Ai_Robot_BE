@@ -18,3 +18,4 @@ export const helmetPlugin = fp(async (fastify: FastifyInstance) => {
     crossOriginEmbedderPolicy: false,
   });
 });
+

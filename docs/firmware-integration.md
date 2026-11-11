@@ -219,3 +219,4 @@ flowchart TD
     ACTIVE -- Disconnect Detected --> WS_RETRY["Exponential Backoff Reconnect"]
     WS_RETRY --> WS_CONN
 ```
+

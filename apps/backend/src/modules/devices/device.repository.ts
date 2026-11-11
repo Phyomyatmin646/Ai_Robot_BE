@@ -64,3 +64,4 @@ export class DeviceRepository extends BaseRepository<IDevice> {
 }
 
 export const deviceRepository = new DeviceRepository();
+

@@ -109,3 +109,4 @@ class GeminiProvider(LLMProvider, EmbeddingProvider):
 
 
 gemini_provider = GeminiProvider()
+

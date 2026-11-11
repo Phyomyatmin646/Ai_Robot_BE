@@ -26,3 +26,4 @@ export const corsPlugin = fp(async (fastify: FastifyInstance) => {
     maxAge: 86400,
   });
 });
+

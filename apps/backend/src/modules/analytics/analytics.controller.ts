@@ -12,3 +12,4 @@ export class AnalyticsController {
 }
 
 export const analyticsController = new AnalyticsController();
+

@@ -272,3 +272,4 @@ export async function registerEsp32WebSocketRoute(fastify: FastifyInstance): Pro
     });
   });
 }
+

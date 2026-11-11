@@ -28,3 +28,4 @@ export class UserRepository extends BaseRepository<IUser> {
 }
 
 export const userRepository = new UserRepository();
+

@@ -100,3 +100,4 @@ export async function authRoutes(fastify: FastifyInstance): Promise<void> {
     handler: authController.changePassword,
   });
 }
+

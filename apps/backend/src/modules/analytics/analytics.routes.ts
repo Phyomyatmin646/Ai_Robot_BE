@@ -14,3 +14,4 @@ export async function analyticsRoutes(fastify: FastifyInstance): Promise<void> {
     handler: analyticsController.getStats,
   });
 }
+

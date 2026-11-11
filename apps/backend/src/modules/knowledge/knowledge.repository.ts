@@ -79,3 +79,4 @@ export class KnowledgeRepository extends BaseRepository<IKnowledgeDocument> {
 }
 
 export const knowledgeRepository = new KnowledgeRepository();
+
