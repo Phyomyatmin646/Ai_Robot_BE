@@ -1,0 +1,25 @@
+{
+  "name": "ai-robot-platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI Voice Assistant Robot Platform - Production Backend",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace=apps/backend",
+    "dev:ai": "cd apps/ai-services && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000",
+    "build": "npm run build --workspace=packages/shared-types && npm run build --workspace=apps/backend",
+    "test": "npm run test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "docker:dev": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build",
+    "docker:prod": "docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d",
+    "docker:down": "docker compose down",
+    "clean": "rm -rf node_modules apps/*/node_modules packages/*/node_modules apps/*/dist packages/*/dist"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
+

@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  backend:
+    volumes:
+      - ./apps/backend:/app/apps/backend
+      - ./packages/shared-types:/app/packages/shared-types
+      - /app/apps/backend/node_modules
+    command: npm run dev --workspace=apps/backend
+
+  ai-services:
+    volumes:
+      - ./apps/ai-services:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
