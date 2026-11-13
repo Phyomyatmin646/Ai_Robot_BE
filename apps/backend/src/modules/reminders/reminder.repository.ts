@@ -1,6 +1,5 @@
 import { BaseRepository } from '../../shared/base.repository.js';
 import { IReminder, ReminderModel } from './reminder.model.js';
-import mongoose from 'mongoose';
 import { ReminderStatus } from '@ai-robot/shared-types';
 
 export class ReminderRepository extends BaseRepository<IReminder> {

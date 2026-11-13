@@ -1,6 +1,5 @@
 import fastify, { FastifyInstance } from 'fastify';
 import { config } from './config/index.js';
-import { logger } from './utils/logger.js';
 import { registerPlugins } from './plugins/index.js';
 import { errorHandler } from './middleware/error-handler.js';
 import { requestLogger } from './middleware/request-logger.js';

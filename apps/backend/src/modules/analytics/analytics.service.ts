@@ -1,4 +1,3 @@
-import { UserModel } from '../users/user.model.js';
 import { DeviceModel } from '../devices/device.model.js';
 import { ConversationModel, MessageModel } from '../conversations/conversation.model.js';
 import { TodoModel } from '../todo/todo.model.js';

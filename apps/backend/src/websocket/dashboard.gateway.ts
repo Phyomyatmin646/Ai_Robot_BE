@@ -82,6 +82,11 @@ export function getDashboardSocketIO(): SocketIOServer {
 
 /** Broadcast helper functions for Web Dashboard */
 export const dashboardBroadcast = {
+  /** Get underlying Socket.IO server instance if initialized */
+  getDashboardSocketIO(): SocketIOServer | null {
+    return io;
+  },
+
   /** Emit robot state change (idle, listening, thinking, speaking) */
   emitRobotState(deviceId: string, userId: string, state: RobotState, sessionId?: string): void {
     if (!io) return;

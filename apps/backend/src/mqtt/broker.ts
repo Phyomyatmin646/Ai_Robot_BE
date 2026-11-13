@@ -1,22 +1,25 @@
-import Aedes from 'aedes';
+import aedesPkg, { createBroker } from 'aedes';
+import type { Client, AedesPublishPacket } from 'aedes';
 import { createServer } from 'node:net';
 import { config } from '../config/index.js';
 import { logger } from '../utils/logger.js';
-import { dashboardBroadcast } from '../websocket/dashboard.gateway.js';
 import { deviceRepository } from '../modules/devices/device.repository.js';
 import { DeviceStatus } from '@ai-robot/shared-types';
 
-let aedesInstance: ReturnType<typeof Aedes> | null = null;
+type AedesInstance = ReturnType<typeof createBroker>;
+
+let aedesInstance: AedesInstance | null = null;
 let netServer: ReturnType<typeof createServer> | null = null;
 
 export function startMqttBroker(): Promise<void> {
   return new Promise((resolve, reject) => {
     try {
-      aedesInstance = new Aedes();
+      const brokerFactory = createBroker || aedesPkg;
+      aedesInstance = brokerFactory() as unknown as AedesInstance;
       netServer = createServer(aedesInstance.handle);
 
       // Authenticate MQTT clients
-      aedesInstance.authenticate = async (client, username, password, callback) => {
+      aedesInstance.authenticate = (_client: Client, username: Readonly<string | undefined>, _password: Readonly<Buffer | undefined>, callback: (error: any, success: boolean | null) => void) => {
         // Device authentication via username (deviceId) and password (apiKey)
         if (config.isDev && !username) {
           return callback(null, true);
@@ -25,12 +28,12 @@ export function startMqttBroker(): Promise<void> {
       };
 
       // Client connected
-      aedesInstance.on('client', (client) => {
+      aedesInstance.on('client', (client: Client) => {
         logger.info({ clientId: client.id }, 'MQTT client connected');
       });
 
       // Client disconnected
-      aedesInstance.on('clientDisconnect', async (client) => {
+      aedesInstance.on('clientDisconnect', async (client: Client) => {
         logger.info({ clientId: client.id }, 'MQTT client disconnected');
         if (client.id && client.id.startsWith('esp32_')) {
           const deviceId = client.id.replace('esp32_', '');
@@ -39,7 +42,7 @@ export function startMqttBroker(): Promise<void> {
       });
 
       // Topic publication handler
-      aedesInstance.on('publish', (packet, client) => {
+      aedesInstance.on('publish', (packet: AedesPublishPacket, client: Client | null) => {
         if (!client) return; // Ignore internal broker messages
 
         const topic = packet.topic;

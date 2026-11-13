@@ -40,5 +40,35 @@ export async function audioRoutes(fastify: FastifyInstance): Promise<void> {
     },
     handler: audioController.delete,
   });
+
+  fastify.post('/:id/play-on-device', {
+    schema: {
+      tags: ['Audio'],
+      summary: 'Stream audio file from database directly to physical ESP32 robot speaker in real-time',
+      security: [{ bearerAuth: [] }],
+      body: {
+        type: 'object',
+        properties: {
+          deviceId: { type: 'string', description: 'Target robot device ID (optional if user has 1 active robot)' },
+        },
+      },
+    },
+    handler: audioController.playOnDevice,
+  });
+
+  fastify.post('/stop-on-device', {
+    schema: {
+      tags: ['Audio'],
+      summary: 'Instantly stop/cancel audio playback on the physical robot',
+      security: [{ bearerAuth: [] }],
+      body: {
+        type: 'object',
+        properties: {
+          deviceId: { type: 'string', description: 'Target robot device ID' },
+        },
+      },
+    },
+    handler: audioController.stopOnDevice,
+  });
 }
 

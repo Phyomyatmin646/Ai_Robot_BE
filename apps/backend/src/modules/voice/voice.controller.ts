@@ -4,7 +4,7 @@ import { successResponse } from '../../shared/response.js';
 import { config } from '../../config/index.js';
 
 export class VoiceController {
-  constructor(private readonly service: VoiceService = voiceService) {}
+  constructor(public readonly service: VoiceService = voiceService) {}
 
   getConfig = async (_request: FastifyRequest, reply: FastifyReply) => {
     return reply.send(

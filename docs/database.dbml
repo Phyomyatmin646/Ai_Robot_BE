@@ -1,0 +1,542 @@
+// =====================================================================
+// AI Voice Assistant Robot Platform — DBML (Database Markup Language)
+// Copy & paste this code directly into https://dbdiagram.io
+// =====================================================================
+
+Project ai_voice_robot_platform {
+  database_type: 'MongoDB'
+  Note: '''
+    # AI Voice Assistant Robot Platform Database Design
+    Engineered for ESP32-S3 IoT Robot, Web Dashboard, and Low-Latency Voice AI.
+  '''
+}
+
+// ==========================================
+// ENUMS
+// ==========================================
+
+Enum user_role {
+  admin
+  user
+  device
+}
+
+Enum device_type {
+  esp32_s3 [note: 'Physical ESP32-S3 Robot']
+  simulator [note: 'Software Robot Simulator']
+}
+
+Enum device_status {
+  online
+  offline
+  updating
+  error
+}
+
+Enum connection_type {
+  websocket [note: 'RFC 6455 Native WebSocket']
+  mqtt [note: 'Lightweight IoT Telemetry']
+  http [note: 'REST Registration']
+}
+
+Enum conversation_status {
+  active
+  completed
+  archived
+}
+
+Enum message_role {
+  user
+  assistant
+  system
+  tool
+}
+
+Enum audio_type {
+  user_input
+  ai_response
+  uploaded
+  system
+}
+
+Enum audio_format {
+  pcm_16bit
+  wav
+  mp3
+  ogg
+  opus
+  webm
+}
+
+Enum storage_type {
+  gridfs
+  s3
+}
+
+Enum todo_status {
+  pending
+  in_progress
+  completed
+  cancelled
+}
+
+Enum todo_priority {
+  low
+  medium
+  high
+  urgent
+}
+
+Enum reminder_status {
+  active
+  triggered
+  snoozed
+  cancelled
+  completed
+}
+
+Enum recurrence_type {
+  none
+  daily
+  weekly
+  monthly
+  yearly
+  custom
+}
+
+Enum notification_type {
+  reminder
+  todo_due
+  device_offline
+  device_online
+  system_alert
+  ai_alert
+  daily_summary
+  custom
+}
+
+Enum notification_channel {
+  telegram
+  websocket
+  device
+  email
+}
+
+Enum notification_status {
+  pending
+  sent
+  delivered
+  read
+  failed
+}
+
+Enum doc_status {
+  pending
+  processing
+  indexed
+  failed
+  deleted
+}
+
+Enum doc_type {
+  text
+  pdf
+  docx
+  txt
+  url
+  markdown
+}
+
+Enum tool_status {
+  success
+  error
+  denied
+  timeout
+}
+
+// ==========================================
+// 1. IDENTITY & AUTHENTICATION
+// ==========================================
+
+Table users {
+  _id ObjectId [pk]
+  name varchar [not null]
+  email varchar [unique, not null]
+  passwordHash varchar [not null]
+  role user_role [default: 'user', not null]
+  isActive boolean [default: true]
+  language varchar [default: 'en']
+  timezone varchar [default: 'Asia/Yangon']
+  telegramChatId varchar [note: 'Linked Telegram Bot Chat ID']
+  lastLoginAt timestamp
+  refreshTokenHash varchar
+  createdAt timestamp [default: `now()`]
+  updatedAt timestamp
+
+  Indexes {
+    (email, isActive)
+    telegramChatId
+  }
+}
+
+// ==========================================
+// 2. ROBOT DEVICES & SESSIONS
+// ==========================================
+
+Table devices {
+  _id ObjectId [pk]
+  userId ObjectId [ref: > users._id, not null]
+  name varchar [default: 'ESP32 AI Robot', not null]
+  deviceType device_type [default: 'esp32_s3']
+  status device_status [default: 'offline']
+  apiKeyHash varchar [not null, note: 'Hashed device secret']
+  firmwareVersion varchar [default: '1.0.0']
+  hardwareVersion varchar [default: 'ESP32-S3-WROOM-1']
+  macAddress varchar [unique, not null]
+  ipAddress varchar
+  lastSeen timestamp
+  isRegistered boolean [default: true]
+
+  // Config parameters
+  audioSampleRate int [default: 16000]
+  audioChannels int [default: 1]
+  audioBitDepth int [default: 16]
+  audioChunkSize int [default: 4096]
+  audioCodec varchar [default: 'pcm_16bit']
+  volumeLevel int [default: 80]
+  brightnessLevel int [default: 80]
+  ledEnabled boolean [default: true]
+  sleepTimeout int [default: 300]
+  heartbeatInterval int [default: 15]
+
+  // Capabilities
+  hasMicrophone boolean [default: true]
+  hasSpeaker boolean [default: true]
+  hasDisplay boolean [default: true]
+  hasTouchSensor boolean [default: true]
+  hasLED boolean [default: true]
+  hasVolumeButtons boolean [default: true]
+
+  createdAt timestamp [default: `now()`]
+  updatedAt timestamp
+
+  Indexes {
+    (userId, status)
+    macAddress
+  }
+}
+
+Table device_sessions {
+  _id ObjectId [pk]
+  deviceId ObjectId [ref: > devices._id, not null]
+  userId ObjectId [ref: > users._id, not null]
+  connectionType connection_type [default: 'websocket']
+  startedAt timestamp [default: `now()`]
+  endedAt timestamp
+  isActive boolean [default: true]
+  ipAddress varchar
+  socketId varchar
+  disconnectReason varchar
+
+  Indexes {
+    (deviceId, isActive)
+  }
+}
+
+// ==========================================
+// 3. CONVERSATIONS & MESSAGES
+// ==========================================
+
+Table conversations {
+  _id ObjectId [pk]
+  userId ObjectId [ref: > users._id, not null]
+  deviceId ObjectId [ref: > devices._id, null]
+  title varchar [default: 'New Conversation']
+  status conversation_status [default: 'active']
+  language varchar [default: 'en']
+  messageCount int [default: 0]
+  totalTokens int [default: 0]
+  lastMessageAt timestamp [default: `now()`]
+  metadata json
+  createdAt timestamp [default: `now()`]
+  updatedAt timestamp
+
+  Indexes {
+    (userId, lastMessageAt)
+  }
+}
+
+Table messages {
+  _id ObjectId [pk]
+  conversationId ObjectId [ref: > conversations._id, not null]
+  role message_role [not null]
+  content text [not null]
+  audioId ObjectId [ref: > audio_metadata._id, null]
+  toolCalls json [note: 'Array of tool call objects']
+  toolResults json [note: 'Array of tool results']
+  tokens int
+  latencyMs int [note: 'AI generation latency in ms']
+  model varchar [note: 'Model used e.g. gemini-2.0-flash']
+  metadata json
+  createdAt timestamp [default: `now()`]
+
+  Indexes {
+    (conversationId, createdAt)
+  }
+}
+
+// ==========================================
+// 4. AUDIO LIBRARY & GRIDFS
+// ==========================================
+
+Table audio_metadata {
+  _id ObjectId [pk]
+  userId ObjectId [ref: > users._id, not null]
+  deviceId ObjectId [ref: > devices._id, null]
+  conversationId ObjectId [ref: > conversations._id, null]
+  fileName varchar [not null]
+  mimeType varchar [default: 'audio/wav']
+  codec varchar [default: 'pcm_16bit']
+  format audio_format [default: 'wav']
+  sampleRate int [default: 16000]
+  channels int [default: 1]
+  bitDepth int [default: 16]
+  duration float [default: 0]
+  fileSize bigint [default: 0]
+  audioType audio_type [default: 'user_input']
+  storageRef varchar [not null, note: 'GridFS File ObjectId']
+  storageType storage_type [default: 'gridfs']
+  createdAt timestamp [default: `now()`]
+  updatedAt timestamp
+
+  Indexes {
+    (userId, createdAt)
+    audioType
+  }
+}
+
+// ==========================================
+// 5. TASKS & REMINDERS
+// ==========================================
+
+Table todos {
+  _id ObjectId [pk]
+  userId ObjectId [ref: > users._id, not null]
+  title varchar [not null]
+  description text
+  status todo_status [default: 'pending']
+  priority todo_priority [default: 'medium']
+  category varchar [default: 'General']
+  dueDate timestamp
+  completedAt timestamp
+  tags json [note: 'Array of strings']
+  createdBy varchar [default: 'user', note: 'user, ai, system']
+  metadata json
+  createdAt timestamp [default: `now()`]
+  updatedAt timestamp
+
+  Indexes {
+    (userId, status, dueDate)
+    (title, description) [note: 'MongoDB text index']
+  }
+}
+
+Table reminders {
+  _id ObjectId [pk]
+  userId ObjectId [ref: > users._id, not null]
+  title varchar [not null]
+  description text
+  scheduledAt timestamp [not null]
+  timezone varchar [default: 'Asia/Yangon']
+  status reminder_status [default: 'active']
+  recurrence recurrence_type [default: 'none']
+  recurrenceRule varchar
+  notifyVia json [note: 'Channels: telegram, websocket, device, email']
+  notifyDeviceId ObjectId [ref: > devices._id, null]
+  lastTriggeredAt timestamp
+  nextTriggerAt timestamp
+  snoozeUntil timestamp
+  createdBy varchar [default: 'user']
+  jobId varchar [note: 'BullMQ Job identifier']
+  metadata json
+  createdAt timestamp [default: `now()`]
+  updatedAt timestamp
+
+  Indexes {
+    (userId, status, scheduledAt)
+    nextTriggerAt
+  }
+}
+
+// ==========================================
+// 6. NOTIFICATIONS
+// ==========================================
+
+Table notifications {
+  _id ObjectId [pk]
+  userId ObjectId [ref: > users._id, not null]
+  type notification_type [not null]
+  title varchar [not null]
+  message text [not null]
+  channel notification_channel [not null]
+  status notification_status [default: 'pending']
+  data json
+  sentAt timestamp
+  readAt timestamp
+  error text
+  createdAt timestamp [default: `now()`]
+
+  Indexes {
+    (userId, createdAt)
+    status
+  }
+}
+
+// ==========================================
+// 7. SETTINGS
+// ==========================================
+
+Table user_settings {
+  _id ObjectId [pk]
+  userId ObjectId [ref: - users._id, unique, not null]
+  language varchar [default: 'en']
+  timezone varchar [default: 'Asia/Yangon']
+
+  // Notification Preferences
+  telegramEnabled boolean [default: false]
+  telegramChatId varchar
+  emailEnabled boolean [default: true]
+  reminderNotifications boolean [default: true]
+  todoNotifications boolean [default: true]
+  deviceAlerts boolean [default: true]
+  dailySummary boolean [default: true]
+  quietHoursEnabled boolean [default: false]
+  quietHoursStart varchar [default: '22:00']
+  quietHoursEnd varchar [default: '07:00']
+
+  // AI Preferences
+  fastModel varchar [default: 'gemini-2.0-flash']
+  thinkingModel varchar [default: 'gemini-2.0-pro']
+  voiceModel varchar [default: 'gemini-2.0-flash-live']
+  personality text
+  systemPrompt text
+  responseLanguage varchar [default: 'en']
+  ragEnabled boolean [default: true]
+  mcpEnabled boolean [default: true]
+  thinkingLevel varchar [default: 'fast', note: 'fast, balanced, deep']
+  temperature float [default: 0.7]
+  maxResponseTokens int [default: 800]
+
+  createdAt timestamp [default: `now()`]
+  updatedAt timestamp
+}
+
+Table device_settings {
+  _id ObjectId [pk]
+  deviceId ObjectId [ref: - devices._id, unique, not null]
+  userId ObjectId [ref: > users._id, not null]
+
+  // Voice Settings
+  voiceProvider varchar [default: 'gemini']
+  voiceModel varchar [default: 'gemini-2.0-flash-live']
+  voiceId varchar [default: 'Puck']
+  voiceLanguage varchar [default: 'en']
+  voiceSpeed float [default: 1.0]
+  voiceVolume int [default: 80]
+  voiceResponseMode varchar [default: 'auto', note: 'auto, push_to_talk, wake_word']
+  wakeWord varchar [default: 'Hey Robot']
+
+  // Sound Hardware Settings
+  masterVolume int [default: 80]
+  isMuted boolean [default: false]
+  outputVolume int [default: 80]
+  notificationVolume int [default: 70]
+  feedbackSoundsEnabled boolean [default: true]
+
+  // Display Settings
+  screenBrightness int [default: 80]
+  screenIsOn boolean [default: true]
+  sleepTimeoutSeconds int [default: 300]
+  displayTheme varchar [default: 'dark']
+
+  // Hardware Maintenance
+  deviceHardwareName varchar [default: 'ESP32 AI Robot']
+  wifiSSID varchar
+  firmwareAutoUpdate boolean [default: false]
+  heartbeatIntervalSeconds int [default: 15]
+  logLevel varchar [default: 'info']
+
+  createdAt timestamp [default: `now()`]
+  updatedAt timestamp
+}
+
+// ==========================================
+// 8. RAG KNOWLEDGE BASE
+// ==========================================
+
+Table knowledge_documents {
+  _id ObjectId [pk]
+  userId ObjectId [ref: > users._id, not null]
+  collectionId ObjectId [null]
+  title varchar [not null]
+  sourceType doc_type [default: 'text']
+  sourceUrl varchar
+  originalFileName varchar
+  content text
+  status doc_status [default: 'pending']
+  chunkCount int [default: 0]
+  totalTokens int [default: 0]
+  embeddingModel varchar [default: 'text-embedding-004']
+  metadata json
+  processedAt timestamp
+  errorMessage text
+  createdAt timestamp [default: `now()`]
+  updatedAt timestamp
+
+  Indexes {
+    userId
+    status
+  }
+}
+
+Table knowledge_chunks {
+  _id ObjectId [pk]
+  documentId ObjectId [ref: > knowledge_documents._id, not null]
+  userId ObjectId [ref: > users._id, not null]
+  content text [not null]
+  chunkIndex int [not null]
+  tokenCount int [default: 0]
+  embedding text [note: '768-dim Vector embedding for Atlas Vector Search']
+  metadata json
+  createdAt timestamp [default: `now()`]
+
+  Indexes {
+    (documentId, chunkIndex)
+    content [note: 'MongoDB text index']
+  }
+}
+
+// ==========================================
+// 9. MODEL CONTEXT PROTOCOL (MCP) LOGS
+// ==========================================
+
+Table tool_execution_logs {
+  _id ObjectId [pk]
+  userId ObjectId [ref: > users._id, not null]
+  conversationId ObjectId [ref: > conversations._id, null]
+  deviceId ObjectId [ref: > devices._id, null]
+  toolName varchar [not null]
+  arguments json
+  result json
+  error text
+  executionTimeMs int [default: 0]
+  status tool_status [default: 'success']
+  createdAt timestamp [default: `now()`]
+
+  Indexes {
+    (userId, createdAt)
+    toolName
+    status
+  }
+}
+

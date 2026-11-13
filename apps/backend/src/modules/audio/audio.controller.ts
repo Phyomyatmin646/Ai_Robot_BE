@@ -60,6 +60,28 @@ export class AudioController {
     await this.service.delete(request.params.id, request.user!.userId);
     return reply.send(successResponse(null, 'Audio recording deleted successfully'));
   };
+
+  /** Trigger low-latency streaming playback of this audio file directly on the physical robot speaker */
+  playOnDevice = async (
+    request: FastifyRequest<{ Params: { id: string }; Body?: { deviceId?: string } }>,
+    reply: FastifyReply
+  ) => {
+    const result = await this.service.playOnDevice(
+      request.params.id,
+      request.user!.userId,
+      request.body?.deviceId
+    );
+    return reply.send(successResponse(result, 'Streaming audio directly to physical robot speaker'));
+  };
+
+  /** Stop/cancel audio playback on robot */
+  stopOnDevice = async (
+    request: FastifyRequest<{ Body?: { deviceId?: string } }>,
+    reply: FastifyReply
+  ) => {
+    await this.service.stopOnDevice(request.user!.userId, request.body?.deviceId);
+    return reply.send(successResponse(null, 'Audio playback stopped on robot'));
+  };
 }
 
 export const audioController = new AudioController();

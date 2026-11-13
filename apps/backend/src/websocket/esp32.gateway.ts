@@ -209,15 +209,16 @@ export async function registerEsp32WebSocketRoute(fastify: FastifyInstance): Pro
           }
 
           case 'audio:start': {
-            session.activeSessionId = payload.sessionId || `voice_${deviceId}_${Date.now()}`;
+            const activeSessionId = (payload.sessionId as string | undefined) || `voice_${deviceId}_${Date.now()}`;
+            session.activeSessionId = activeSessionId;
             session.currentSequenceNumber = 0;
             session.state = 'listening';
-            dashboardBroadcast.emitRobotState(deviceId, userId, 'listening', session.activeSessionId);
+            dashboardBroadcast.emitRobotState(deviceId, userId, 'listening', activeSessionId);
 
             await voiceService.startVoiceSession(
               deviceId,
               userId,
-              session.activeSessionId,
+              activeSessionId,
               payload.format || AudioFormat.PCM_16BIT,
               payload.sampleRate || 16000
             );

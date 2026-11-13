@@ -1,7 +1,6 @@
 import { logger } from '../../utils/logger.js';
 import { GeminiLiveSession } from './gemini-live.client.js';
 import { settingsRepository } from '../settings/settings.repository.js';
-import { config } from '../../config/index.js';
 import { AudioFormat } from '@ai-robot/shared-types';
 
 export class VoiceService {

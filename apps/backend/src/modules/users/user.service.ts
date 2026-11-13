@@ -1,7 +1,6 @@
 import { userRepository, UserRepository } from './user.repository.js';
 import { IUser } from './user.model.js';
 import { NotFoundError, ConflictError } from '../../shared/errors.js';
-import { hashPassword } from '../../utils/crypto.js';
 
 export class UserService {
   constructor(private readonly userRepo: UserRepository = userRepository) {}

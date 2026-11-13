@@ -20,7 +20,8 @@ export interface IConversation extends Document {
   updatedAt: Date;
 }
 
-export interface IMessage extends Document {
+export interface IMessage {
+  _id?: mongoose.Types.ObjectId;
   conversationId: mongoose.Types.ObjectId;
   role: MessageRole;
   content: string;
@@ -31,7 +32,7 @@ export interface IMessage extends Document {
   latencyMs?: number;
   model?: string;
   metadata?: Record<string, unknown>;
-  createdAt: Date;
+  createdAt?: Date;
 }
 
 const ConversationSchema = new Schema<IConversation>(

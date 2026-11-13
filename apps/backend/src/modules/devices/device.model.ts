@@ -100,7 +100,7 @@ const DeviceSchema = new Schema<IDevice>(
         delete (ret as Record<string, unknown>).apiKeyHash;
         delete (ret as Record<string, unknown>).__v;
         ret.id = ret._id;
-        delete ret._id;
+        delete (ret as Record<string, unknown>)._id;
         return ret;
       },
     },

@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   backend:
     build:
@@ -8,17 +6,23 @@ services:
     restart: unless-stopped
     environment:
       - NODE_ENV=${NODE_ENV:-development}
-      - PORT=3000
+      - PORT=${PORT:-3000}
       - HOST=0.0.0.0
-      - MONGODB_URI=mongodb://mongodb:27017/ai-robot
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - MONGODB_URI=${MONGODB_URI:-mongodb://mongodb:27017/ai-robot}
+      - MONGODB_DB_NAME=${MONGODB_DB_NAME:-ai-robot}
+      - REDIS_HOST=${REDIS_HOST:-redis}
+      - REDIS_PORT=${REDIS_PORT:-6379}
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
       - JWT_SECRET=${JWT_SECRET:-change-this-to-a-strong-secret-in-production}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ELEVENLABS_API_KEY=${ELEVENLABS_API_KEY}
+      - FAST_MODEL=${FAST_MODEL:-gemini-2.0-flash}
+      - THINKING_MODEL=${THINKING_MODEL:-gemini-2.0-pro}
+      - VOICE_MODEL=${VOICE_MODEL:-gemini-2.0-flash-live}
+      - VOICE_MODE=${VOICE_MODE:-native}
       - AI_SERVICE_URL=http://ai-services:8000
-      - MQTT_PORT=1883
+      - MQTT_PORT=${MQTT_PORT:-1883}
       - MQTT_HOST=0.0.0.0
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
     ports:

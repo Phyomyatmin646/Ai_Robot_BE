@@ -1,9 +1,18 @@
 import { audioRepository, AudioRepository } from './audio.repository.js';
 import { IAudioMetadata } from './audio.model.js';
-import { NotFoundError } from '../../shared/errors.js';
+import { NotFoundError, BadRequestError } from '../../shared/errors.js';
 import { Readable } from 'node:stream';
 import mongoose from 'mongoose';
 import { AudioType, AudioFormat } from '@ai-robot/shared-types';
+import {
+  getActiveEsp32Session,
+  getAllActiveEsp32Sessions,
+  sendAudioChunkToEsp32,
+  sendControlMessageToEsp32,
+  sendAudioCancelToEsp32,
+} from '../../websocket/esp32.gateway.js';
+import { dashboardBroadcast } from '../../websocket/dashboard.gateway.js';
+import { logger } from '../../utils/logger.js';
 
 export interface AudioFilterOptions {
   userId: string;
@@ -118,6 +127,92 @@ export class AudioService {
     const audio = await this.getById(id, userId);
     await this.repo.deleteFromGridFS(audio.storageRef);
     await this.repo.deleteById(audio.id);
+  }
+
+  /**
+   * Ultra-low-latency direct streaming playback of database audio onto the physical robot speaker
+   */
+  async playOnDevice(audioId: string, userId: string, targetDeviceId?: string): Promise<{ success: boolean; deviceId: string; fileName: string }> {
+    const audio = await this.getById(audioId, userId);
+
+    // Locate active robot session
+    let targetSession = targetDeviceId ? getActiveEsp32Session(targetDeviceId) : undefined;
+    if (!targetSession) {
+      // If no specific device requested or requested device not found, find user's active connected robot
+      const userSessions = getAllActiveEsp32Sessions().filter((s) => s.userId === userId);
+      if (userSessions.length === 0) {
+        throw new BadRequestError('Cannot play audio: Robot is powered off or not connected via WebSocket');
+      }
+      targetSession = userSessions[0];
+    }
+
+    const deviceId = targetSession.deviceId;
+    const playSessionId = `playback_${audioId}_${Date.now()}`;
+
+    logger.info({ audioId, deviceId, fileName: audio.fileName }, 'Starting direct low-latency audio stream to ESP32 robot');
+
+    // 1. Notify ESP32 that audio playback is starting
+    sendControlMessageToEsp32(deviceId, 'audio:response:start', {
+      sessionId: playSessionId,
+      format: audio.format || AudioFormat.PCM_16BIT,
+      sampleRate: audio.sampleRate || 16000,
+      channels: audio.channels || 1,
+      bitDepth: audio.bitDepth || 16,
+      fileName: audio.fileName,
+      totalSize: audio.fileSize,
+    });
+
+    // 2. Update robot state to 'speaking'
+    targetSession.state = 'speaking';
+    dashboardBroadcast.emitRobotState(deviceId, userId, 'speaking', playSessionId);
+
+    // 3. Open GridFS download stream and stream directly as binary WebSocket frames
+    const downloadStream = this.repo.getDownloadStreamFromGridFS(audio.storageRef);
+
+    downloadStream.on('data', (chunk: Buffer) => {
+      // Forward binary audio chunk immediately without buffering
+      sendAudioChunkToEsp32(deviceId, chunk);
+    });
+
+    downloadStream.on('end', () => {
+      logger.info({ audioId, deviceId }, 'Completed audio playback stream to ESP32 robot');
+      sendControlMessageToEsp32(deviceId, 'audio:response:end', {
+        sessionId: playSessionId,
+        fileName: audio.fileName,
+      });
+      targetSession!.state = 'idle';
+      dashboardBroadcast.emitRobotState(deviceId, userId, 'idle', playSessionId);
+    });
+
+    downloadStream.on('error', (err) => {
+      logger.error({ err, audioId, deviceId }, 'Error streaming audio from GridFS to robot');
+      sendControlMessageToEsp32(deviceId, 'audio:cancel', { reason: 'stream_read_error' });
+      targetSession!.state = 'idle';
+      dashboardBroadcast.emitRobotState(deviceId, userId, 'idle', playSessionId);
+    });
+
+    return {
+      success: true,
+      deviceId,
+      fileName: audio.fileName,
+    };
+  }
+
+  /**
+   * Immediately silence playback on the robot (interruption)
+   */
+  async stopOnDevice(userId: string, targetDeviceId?: string): Promise<void> {
+    const sessions = targetDeviceId
+      ? [getActiveEsp32Session(targetDeviceId)].filter(Boolean)
+      : getAllActiveEsp32Sessions().filter((s) => s.userId === userId);
+
+    for (const session of sessions) {
+      if (session) {
+        sendAudioCancelToEsp32(session.deviceId, 'user_stop_request');
+        session.state = 'idle';
+        dashboardBroadcast.emitRobotState(session.deviceId, userId, 'idle');
+      }
+    }
   }
 }
 

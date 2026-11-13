@@ -50,7 +50,7 @@ const UserSchema = new Schema<IUser>(
         delete (ret as Record<string, unknown>).refreshTokenHash;
         delete (ret as Record<string, unknown>).__v;
         ret.id = ret._id;
-        delete ret._id;
+        delete (ret as Record<string, unknown>)._id;
         return ret;
       },
     },

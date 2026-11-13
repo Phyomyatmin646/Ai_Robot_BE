@@ -3,7 +3,7 @@ import { todoController } from './todo.controller.js';
 import { authenticate } from '../../middleware/auth.js';
 import { z } from 'zod';
 import { validate } from '../../middleware/validate.js';
-import { TodoPriority, TodoStatus } from '@ai-robot/shared-types';
+import { TodoPriority } from '@ai-robot/shared-types';
 
 const createTodoSchema = z.object({
   title: z.string().min(1).max(300),

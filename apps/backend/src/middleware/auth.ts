@@ -1,12 +1,6 @@
-import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { FastifyRequest, FastifyReply } from 'fastify';
 import { UnauthorizedError, ForbiddenError } from '../shared/errors.js';
 import type { TokenPayload, UserRole } from '@ai-robot/shared-types';
-
-declare module 'fastify' {
-  interface FastifyRequest {
-    user?: TokenPayload;
-  }
-}
 
 /**
  * Authentication decorator for Fastify
@@ -19,7 +13,6 @@ export async function authenticate(request: FastifyRequest, _reply: FastifyReply
       throw new UnauthorizedError('Missing or invalid Authorization header');
     }
 
-    const token = authHeader.substring(7);
     const decoded = await request.jwtVerify<TokenPayload>();
     request.user = decoded;
   } catch (err: unknown) {
