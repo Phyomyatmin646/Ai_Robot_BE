@@ -21,7 +21,7 @@ services:
       - AI_SERVICE_URL=http://ai-services:8000
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     depends_on:
       redis:
         condition: service_healthy
