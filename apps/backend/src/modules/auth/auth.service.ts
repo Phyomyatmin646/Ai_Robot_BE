@@ -53,7 +53,7 @@ export class AuthService {
       },
       ai: {
         fastModel: config.FAST_MODEL,
-        thinkingModel: config.THINKING_MODEL,
+        thinkingModel: config.THINKING_MODEL || config.FAST_MODEL,
         voiceModel: config.VOICE_MODEL,
         personality: 'Friendly, helpful, and concise AI robot assistant.',
         responseLanguage: user.language,
@@ -97,7 +97,7 @@ export class AuthService {
     signTokenFn: (payload: TokenPayload, options?: { expiresIn?: string }) => string
   ): Promise<AuthTokens> {
     const tokenHash = hashToken(rawRefreshToken);
-    const user = await this.userRepo.findOne({ refreshTokenHash: tokenHash }, '+refreshTokenHash');
+    const user = await this.userRepo.findOne({ refreshTokenHash: tokenHash });
 
     if (!user || !user.isActive) {
       throw new UnauthorizedError('Invalid or expired refresh token');

@@ -109,7 +109,6 @@ const DeviceSchema = new Schema<IDevice>(
 
 // Compound indexes
 DeviceSchema.index({ userId: 1, status: 1 });
-DeviceSchema.index({ macAddress: 1 });
 
 const DeviceSessionSchema = new Schema<IDeviceSession>(
   {

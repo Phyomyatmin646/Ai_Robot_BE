@@ -50,8 +50,8 @@ export interface HealthCheckResponse {
   services: {
     mongodb: ServiceStatus;
     redis: ServiceStatus;
-    mqtt: ServiceStatus;
-    aiService: ServiceStatus;
+    voiceEngine?: { status: string; mode: string };
+    aiService?: ServiceStatus;
   };
 }
 

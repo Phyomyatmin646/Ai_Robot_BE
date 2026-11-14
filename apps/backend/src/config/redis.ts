@@ -18,8 +18,8 @@ export function getRedisClient(): Redis {
       logger.warn(`Redis reconnecting... attempt ${times}, delay ${delay}ms`);
       return delay;
     },
-    maxRetriesPerRequest: 3,
-    enableReadyCheck: true,
+    maxRetriesPerRequest: null,
+    enableReadyCheck: false,
     lazyConnect: true,
   });
 

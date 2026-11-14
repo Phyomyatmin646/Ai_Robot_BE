@@ -60,7 +60,6 @@ export async function buildApp(): Promise<FastifyInstance> {
           mongodb: { status: mongoStatus ? 'connected' : 'disconnected' },
           redis: { status: redisStatus ? 'connected' : 'disconnected' },
           voiceEngine: { status: 'ready', mode: config.VOICE_MODE },
-          mqtt: { status: 'running', port: config.MQTT_PORT },
         },
       };
 

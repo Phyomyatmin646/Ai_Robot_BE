@@ -12,7 +12,6 @@ export enum DeviceStatus {
 
 export enum ConnectionType {
   WEBSOCKET = 'websocket',
-  MQTT = 'mqtt',
   HTTP = 'http',
 }
 

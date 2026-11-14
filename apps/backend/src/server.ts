@@ -4,7 +4,6 @@ import { logger } from './utils/logger.js';
 import { connectDatabase, disconnectDatabase } from './config/database.js';
 import { connectRedis, disconnectRedis } from './config/redis.js';
 import { initializeDashboardSocketIO } from './websocket/dashboard.gateway.js';
-import { startMqttBroker, stopMqttBroker } from './mqtt/broker.js';
 import { startReminderWorker } from './jobs/reminder.worker.js';
 import type { Worker } from 'bullmq';
 
@@ -28,14 +27,7 @@ async function bootstrap() {
     logger.warn('Initial Redis connection deferred. Background jobs queue unavailable.');
   }
 
-  // 3. Start MQTT Broker
-  try {
-    await startMqttBroker();
-  } catch (err) {
-    logger.warn({ err }, 'Failed to start MQTT broker. MQTT communications unavailable.');
-  }
-
-  // 4. Build Fastify application
+  // 3. Build Fastify application
   const app = await buildApp();
 
   // 5. Initialize Socket.IO on the raw HTTP server (for Web Dashboard)
@@ -64,7 +56,6 @@ async function bootstrap() {
         await reminderWorker.close();
       }
       await app.close();
-      await stopMqttBroker();
       await disconnectRedis();
       await disconnectDatabase();
       logger.info('Graceful shutdown completed successfully');

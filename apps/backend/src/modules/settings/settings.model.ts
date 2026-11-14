@@ -31,9 +31,9 @@ const UserSettingsSchema = new Schema<IUserSettings>(
       quietHoursEnd: { type: String, default: '07:00' },
     },
     ai: {
-      fastModel: { type: String, default: 'gemini-2.0-flash' },
-      thinkingModel: { type: String, default: 'gemini-2.0-pro' },
-      voiceModel: { type: String, default: 'gemini-2.0-flash-live' },
+      fastModel: { type: String, default: 'gemini-3.5-flash-lite' },
+      thinkingModel: { type: String, default: '' },
+      voiceModel: { type: String, default: 'gemini-3.8-live' },
       personality: { type: String, default: 'Helpful and concise robot companion.' },
       systemPrompt: { type: String },
       responseLanguage: { type: String, default: 'en' },
@@ -53,7 +53,7 @@ const DeviceSettingsSchema = new Schema<IDeviceSettings>(
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     voice: {
       provider: { type: String, default: 'gemini' },
-      model: { type: String, default: 'gemini-2.0-flash-live' },
+      model: { type: String, default: 'gemini-3.8-live' },
       voiceId: { type: String, default: 'Puck' },
       language: { type: String, default: 'en' },
       speed: { type: Number, default: 1.0, min: 0.5, max: 2.0 },

@@ -15,9 +15,9 @@ class Settings(BaseSettings):
     ELEVENLABS_API_KEY: Optional[str] = os.getenv("ELEVENLABS_API_KEY", "")
 
     # Models
-    FAST_MODEL: str = os.getenv("FAST_MODEL", "gemini-3.5-flash=lite")
+    FAST_MODEL: str = os.getenv("FAST_MODEL", "gemini-3.5-flash-lite")
     VOICE_MODEL: str = os.getenv("VOICE_MODEL", "gemini-3.8-live")
-    EMBEDDING_MODEL: str = "text-embedding-004"
+    EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "gemini-embedding-001")
 
     # Audio
     AUDIO_SAMPLE_RATE: int = 16000

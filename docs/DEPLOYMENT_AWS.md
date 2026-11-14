@@ -1,72 +1,89 @@
-# Production Deployment Guide: AWS EC2
+# Production Deployment Guide: AWS EC2 & GitHub CI/CD
 
-This guide outlines deploying the production AI Voice Assistant Robot Platform backend onto an **AWS EC2 Ubuntu Instance** using Docker Compose and Nginx with SSL.
-
----
-
-## 1. Instance Recommendation
-
-- **AWS EC2 Instance Type:** `t3.medium` or `t3.large` (2 vCPU, 4–8 GB RAM).
-- **OS:** Ubuntu 22.04 LTS / 24.04 LTS (x86_64 or arm64).
-- **Storage:** 40 GB+ gp3 EBS Volume.
-- **Security Group Inbound Rules:**
-  - Port `22` (SSH) — Restricted to administrator IP.
-  - Port `80` (HTTP) — `0.0.0.0/0` (Redirects to HTTPS).
-  - Port `443` (HTTPS & WSS) — `0.0.0.0/0`.
-  - Port `1883` (MQTT) — `0.0.0.0/0` (For ESP32 IoT connectivity).
-  - *Never expose port 27017 (MongoDB) or 6379 (Redis) publicly.*
+This guide provides complete instructions for deploying the simplified, lightweight **AI Robot Backend Platform** onto an **AWS EC2 Ubuntu Instance (~2GB RAM)** with automated **GitHub Actions CI/CD**.
 
 ---
 
-## 2. Automated One-Click Deployment
+## 1. AWS EC2 Instance & Security Group Configuration
 
-1. SSH into your newly launched EC2 instance:
+- **Instance Type:** `t3.small`, `t4g.small`, or `t3a.small` (2 vCPU, 2 GB RAM).
+- **OS:** Ubuntu 22.04 LTS or 24.04 LTS (x86_64 or arm64).
+- **Storage:** 20 GB+ gp3 EBS Volume.
+- **Inbound Security Group Rules:**
+  - **Port `22` (SSH)**: Your IP or `0.0.0.0/0` (for GitHub Actions SSH deployment).
+  - **Port `3000` (Custom TCP)**: `0.0.0.0/0` (Fastify REST API, ESP32 WebSocket `/ws/esp32`, and Dashboard Socket.IO `/socket.io/`).
+  - *(Note: Port 6379 Redis is bound to `127.0.0.1` locally and is NEVER exposed to the public internet).*
+
+---
+
+## 2. Initial One-Time Setup on AWS EC2
+
+1. **SSH into your EC2 instance:**
    ```bash
-   ssh -i your-key.pem ubuntu@ec2-xx-xx-xx-xx.compute-1.amazonaws.com
+   ssh -i your-key.pem ubuntu@<EC2_PUBLIC_IP>
    ```
 
-2. Download and run the automated deployment script:
+2. **Clone the repository:**
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/your-org/ai-robot-platform/main/infrastructure/scripts/deploy-ec2.sh | bash
+   git clone https://github.com/Phyomyatmin646/Ai_Robot_BE.git ~/Ai_Robot_BE
+   cd ~/Ai_Robot_BE
    ```
 
----
+3. **Configure Environment Variables (`.env`):**
+   ```bash
+   cp .env.example .env
+   nano .env
+   ```
+   Provide your real credentials:
+   - `MONGODB_URI`: Your MongoDB Atlas connection string (`mongodb+srv://...`).
+   - `GEMINI_API_KEY`: Your Google Gemini API key.
+   - `JWT_SECRET`: A secure random secret string.
+   - `FAST_MODEL`: `gemini-3.5-flash-lite`
+   - `VOICE_MODEL`: `gemini-3.8-live`
+   - `CORS_ORIGINS`: Include your frontend URL (e.g. `http://localhost:5173`, `http://<EC2_IP>:5173`, etc.)
 
-## 3. Configuring Secrets (`.env`)
-
-Edit `/opt/ai-robot-platform/.env`:
-```bash
-nano /opt/ai-robot-platform/.env
-```
-Fill in the production values:
-- `JWT_SECRET`: Generate a 64-character random string (`openssl rand -hex 32`).
-- `GEMINI_API_KEY`: Your Google Gemini API key.
-- `TELEGRAM_BOT_TOKEN`: Token obtained from `@BotFather`.
-- `MONGODB_URI`: Leave default to use local container MongoDB or supply MongoDB Atlas URI.
-
----
-
-## 4. Setting up SSL with Let's Encrypt Certbot
-
-```bash
-sudo apt-get install -y certbot python3-certbot-nginx
-sudo certbot --nginx -d api.yourdomain.com
-```
-
-Certbot will automatically configure HTTPS certificates and autorenewal timers.
+4. **Run the Automated EC2 Deployment Script:**
+   ```bash
+   chmod +x infrastructure/scripts/deploy-ec2.sh
+   ./infrastructure/scripts/deploy-ec2.sh
+   ```
+   *This script automatically allocates a 2GB swapfile (preventing OOM during Docker build), installs Docker if missing, starts the containers with production memory limits, and verifies `/health`.*
 
 ---
 
-## 5. Verification & Health Monitoring
+## 3. GitHub Actions CI/CD Setup
+
+Whenever you push to `master` (or click "Run workflow" in GitHub Actions), GitHub Actions will automatically:
+1. Run TypeScript build and unit tests.
+2. Verify Python AI services syntax and dependencies.
+3. SSH into your EC2 instance, pull the latest code, and deploy with zero downtime.
+
+### Required GitHub Repository Secrets
+Go to your GitHub repository:
+**Settings** -> **Secrets and variables** -> **Actions** -> **New repository secret**:
+
+| Secret Name | Description | Example Value |
+| :--- | :--- | :--- |
+| `EC2_HOST` | EC2 Public IP or Public DNS | `3.106.xxx.xxx` |
+| `EC2_USER` | EC2 SSH Username | `ubuntu` |
+| `EC2_SSH_KEY` | Entire private key (`.pem` file) | `-----BEGIN RSA PRIVATE KEY----- ...` |
+| `EC2_PROJECT_PATH` | Path where repo is cloned on EC2 | `/home/ubuntu/Ai_Robot_BE` *(optional, default)* |
+
+---
+
+## 4. Verification & Management on EC2
 
 ```bash
 # Check container status
 docker compose ps
 
 # Check backend health
-curl -f https://api.yourdomain.com/health
+curl http://127.0.0.1:3000/health
 
-# View live system logs
+# View live container logs
 docker compose logs -f backend
+
+# Stop all services
+docker compose down
 ```
 

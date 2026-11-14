@@ -31,20 +31,14 @@ const envSchema = z.object({
   ELEVENLABS_API_KEY: z.string().optional().default(''),
 
   // AI Models
-  FAST_MODEL: z.string().default('gemini-2.0-flash'),
-  THINKING_MODEL: z.string().default('gemini-2.0-pro'),
-  VOICE_MODEL: z.string().default('gemini-2.0-flash-live'),
+  FAST_MODEL: z.string().default('gemini-3.5-flash-lite'),
+  THINKING_MODEL: z.string().optional().default(''),
+  VOICE_MODEL: z.string().default('gemini-3.8-live'),
 
   // Voice
   VOICE_MODE: z.enum(['native', 'cascade']).default('native'),
   DEFAULT_LANGUAGE: z.string().default('en'),
   SUPPORTED_LANGUAGES: z.string().default('en,my'),
-
-  // MQTT
-  MQTT_PORT: z.coerce.number().default(1883),
-  MQTT_HOST: z.string().default('localhost'),
-  MQTT_USERNAME: z.string().optional().default(''),
-  MQTT_PASSWORD: z.string().optional().default(''),
 
   // Telegram
   TELEGRAM_BOT_TOKEN: z.string().optional().default(''),

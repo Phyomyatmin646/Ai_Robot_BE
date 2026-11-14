@@ -84,7 +84,7 @@ export class GeminiLiveSession {
 
     const setupMsg = {
       setup: {
-        model: `models/${config.VOICE_MODEL || 'gemini-2.0-flash-exp'}`,
+        model: `models/${config.VOICE_MODEL || 'gemini-3.8-live'}`,
         generationConfig: {
           responseModalities: ['AUDIO'],
           speechConfig: {

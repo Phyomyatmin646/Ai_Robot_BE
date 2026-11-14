@@ -4,6 +4,7 @@ import { generateApiKey, hashToken } from '../../utils/crypto.js';
 import { NotFoundError, ConflictError, UnauthorizedError } from '../../shared/errors.js';
 import { DeviceRegistrationRequest, DeviceStatus, DeviceConfig } from '@ai-robot/shared-types';
 import { settingsRepository } from '../settings/settings.repository.js';
+import { config } from '../../config/index.js';
 
 export class DeviceService {
   constructor(private readonly deviceRepo: DeviceRepository = deviceRepository) {}
@@ -36,7 +37,7 @@ export class DeviceService {
     await settingsRepository.createDeviceSettings(device.id, userId, {
       voice: {
         provider: 'gemini',
-        model: 'gemini-2.0-flash-live',
+        model: config.VOICE_MODEL,
         voiceId: 'Puck',
         language: 'en',
         speed: 1.0,

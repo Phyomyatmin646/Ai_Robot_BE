@@ -88,6 +88,7 @@ async def synthesize_speech(request: TTSRequest):
 @router.post("/stt")
 async def transcribe_speech(file: UploadFile = File(...), language: str = "en"):
     content = await file.read()
-    transcript = await openai_provider.transcribe(content, language)
+    mime_type = file.content_type or "audio/wav"
+    transcript = await gemini_provider.transcribe(content, mime_type=mime_type, language=language)
     return {"text": transcript}
 
