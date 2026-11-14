@@ -1,0 +1,3 @@
+107.23.154.150.sslip.io {
+    reverse_proxy backend:3000
+}
