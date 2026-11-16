@@ -10,5 +10,6 @@ export * from './knowledge.js';
 export * from './mcp.js';
 export * from './settings.js';
 export * from './websocket.js';
+export * from './rfid.js';
 export * from './api.js';
 

@@ -1,7 +1,12 @@
 import { WebSocket } from 'ws';
 import { logger } from '../../utils/logger.js';
 import { config } from '../../config/index.js';
-import { sendAudioChunkToEsp32, sendAudioCancelToEsp32, sendControlMessageToEsp32 } from '../../websocket/esp32.gateway.js';
+import {
+  sendAudioChunkToEsp32,
+  sendAudioCancelToEsp32,
+  sendControlMessageToEsp32,
+  getActiveEsp32Session,
+} from '../../websocket/esp32.gateway.js';
 import { dashboardBroadcast } from '../../websocket/dashboard.gateway.js';
 import { LatencyMetrics } from '@ai-robot/shared-types';
 
@@ -17,6 +22,8 @@ export interface GeminiLiveSessionConfig {
 export class GeminiLiveSession {
   private ws: WebSocket | null = null;
   private isConnected = false;
+  private isMock = false;
+  private sessionTimeoutTimer?: NodeJS.Timeout;
   private latencyMetrics: LatencyMetrics;
 
   constructor(public readonly configData: GeminiLiveSessionConfig) {
@@ -114,9 +121,34 @@ Language: ${this.configData.language || 'English'}.`,
   }
 
   /**
+   * Reset session inactivity timeout timer
+   */
+  resetInactivityTimeout(timeoutMs = 60000): void {
+    if (this.sessionTimeoutTimer) {
+      clearTimeout(this.sessionTimeoutTimer);
+    }
+    this.sessionTimeoutTimer = setTimeout(() => {
+      logger.info({ sessionId: this.configData.sessionId }, 'Voice session timed out due to inactivity');
+      this.close();
+      const esp32Session = getActiveEsp32Session(this.configData.deviceId);
+      if (esp32Session) {
+        esp32Session.state = 'idle';
+        esp32Session.activeSessionId = undefined;
+      }
+      dashboardBroadcast.emitRobotState(
+        this.configData.deviceId,
+        this.configData.userId,
+        'idle'
+      );
+    }, timeoutMs);
+  }
+
+  /**
    * Forward incoming PCM audio chunk from ESP32 to Gemini Live immediately
    */
   sendAudioChunk(chunk: Buffer): void {
+    this.resetInactivityTimeout();
+
     if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
       return;
     }
@@ -138,6 +170,66 @@ Language: ${this.configData.language || 'English'}.`,
     };
 
     this.ws.send(JSON.stringify(audioMsg));
+  }
+
+  /**
+   * Complete client audio stream turn (sent when ESP32 signals audio:end)
+   */
+  sendAudioStreamEnd(): void {
+    this.resetInactivityTimeout();
+
+    if (!this.isConnected) return;
+
+    if (this.isMock) {
+      logger.info({ sessionId: this.configData.sessionId }, 'Mock voice session completing simulated turn');
+      // Simulate quick mock turn
+      sendControlMessageToEsp32(this.configData.deviceId, 'audio:response:start', {
+        sessionId: this.configData.sessionId,
+        format: 'pcm_16bit',
+        sampleRate: 24000,
+        channels: 1,
+      });
+
+      const esp32Session = getActiveEsp32Session(this.configData.deviceId);
+      if (esp32Session) {
+        esp32Session.state = 'speaking';
+      }
+      dashboardBroadcast.emitRobotState(
+        this.configData.deviceId,
+        this.configData.userId,
+        'speaking',
+        this.configData.sessionId
+      );
+
+      setTimeout(() => {
+        sendControlMessageToEsp32(this.configData.deviceId, 'audio:response:end', {
+          sessionId: this.configData.sessionId,
+          duration: 500,
+        });
+
+        if (esp32Session) {
+          esp32Session.state = 'idle';
+        }
+        dashboardBroadcast.emitRobotState(
+          this.configData.deviceId,
+          this.configData.userId,
+          'idle',
+          this.configData.sessionId
+        );
+      }, 50);
+      return;
+    }
+
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+
+    // Signal turnComplete to Gemini Live
+    const turnCompleteMsg = {
+      clientContent: {
+        turnComplete: true,
+      },
+    };
+    this.ws.send(JSON.stringify(turnCompleteMsg));
+    logger.info({ sessionId: this.configData.sessionId }, 'Sent clientContent turnComplete to Gemini Live');
   }
 
   /**
@@ -187,6 +279,11 @@ Language: ${this.configData.language || 'English'}.`,
                 channels: 1,
               });
 
+              const esp32Session = getActiveEsp32Session(this.configData.deviceId);
+              if (esp32Session) {
+                esp32Session.state = 'speaking';
+              }
+
               dashboardBroadcast.emitRobotState(
                 this.configData.deviceId,
                 this.configData.userId,
@@ -210,6 +307,11 @@ Language: ${this.configData.language || 'English'}.`,
           duration: this.latencyMetrics.totalDuration,
         });
 
+        const esp32Session = getActiveEsp32Session(this.configData.deviceId);
+        if (esp32Session) {
+          esp32Session.state = 'idle';
+        }
+
         dashboardBroadcast.emitRobotState(
           this.configData.deviceId,
           this.configData.userId,
@@ -217,8 +319,10 @@ Language: ${this.configData.language || 'English'}.`,
           this.configData.sessionId
         );
 
-        // Emit latency metrics to dashboard
-        dashboardBroadcast.getDashboardSocketIO?.();
+        // Reset turn response markers for next turn
+        this.latencyMetrics.firstAiResponse = 0;
+        this.latencyMetrics.firstAudioResponse = 0;
+        this.latencyMetrics.playbackStart = 0;
       }
     } catch (err) {
       logger.error({ err }, 'Error handling Gemini Live message');
@@ -229,11 +333,17 @@ Language: ${this.configData.language || 'English'}.`,
    * Mock session for testing when API key is not yet configured
    */
   private setupMockSession(): void {
+    this.isMock = true;
     this.isConnected = true;
+    this.resetInactivityTimeout();
     logger.info({ sessionId: this.configData.sessionId }, 'Initialized Mock Voice AI Session');
   }
 
   close(): void {
+    if (this.sessionTimeoutTimer) {
+      clearTimeout(this.sessionTimeoutTimer);
+      this.sessionTimeoutTimer = undefined;
+    }
     if (this.ws) {
       this.ws.close();
       this.ws = null;
