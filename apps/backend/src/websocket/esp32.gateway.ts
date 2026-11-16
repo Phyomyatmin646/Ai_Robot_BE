@@ -13,6 +13,7 @@ import {
   AudioFormat,
 } from '@ai-robot/shared-types';
 import { voiceService } from '../modules/voice/voice.service.js';
+import { rfidService } from '../modules/rfid/rfid.service.js';
 
 export interface Esp32DeviceSession {
   deviceId: string;
@@ -34,6 +35,10 @@ export function getActiveEsp32Session(deviceId: string): Esp32DeviceSession | un
 
 export function getAllActiveEsp32Sessions(): Esp32DeviceSession[] {
   return Array.from(activeConnections.values());
+}
+
+export function clearActiveEsp32Sessions(): void {
+  activeConnections.clear();
 }
 
 /**
@@ -196,15 +201,17 @@ export async function registerEsp32WebSocketRoute(fastify: FastifyInstance): Pro
               pressed: Boolean(payload.pressed),
               timestamp: Date.now(),
             };
-            logger.info({ deviceId, pad: touchEvent.pad, pressed: touchEvent.pressed }, 'ESP32 touch event received');
+            logger.info({ deviceId, pad: touchEvent.pad, pressed: touchEvent.pressed }, 'ESP32 head touch telemetry received');
             dashboardBroadcast.emitTouchEvent(deviceId, userId, touchEvent);
 
-            // If touch button triggered push-to-talk start/stop
-            if (touchEvent.pressed && session.state === 'idle') {
-              session.activeSessionId = `voice_${deviceId}_${Date.now()}`;
-              session.state = 'listening';
-              dashboardBroadcast.emitRobotState(deviceId, userId, 'listening', session.activeSessionId);
-            }
+            // Head touch reaction sound is played locally on ESP32-S3 firmware.
+            // Head touch is strictly telemetry/monitoring, NEVER Push-to-Talk.
+            // It MUST NOT start a voice session, start listening mode, or invoke Gemini.
+            break;
+          }
+
+          case 'rfid:scan': {
+            await rfidService.handleRfidScan(deviceId, userId, payload);
             break;
           }
 
@@ -257,6 +264,12 @@ export async function registerEsp32WebSocketRoute(fastify: FastifyInstance): Pro
     socket.on('close', async (code: number, reason: Buffer) => {
       logger.info({ deviceId, code, reason: reason.toString() }, 'ESP32 WebSocket disconnected');
       activeConnections.delete(deviceId);
+
+      // Clean up active voice session if device disconnects mid-conversation
+      if (session.activeSessionId) {
+        voiceService.endSession(session.activeSessionId);
+        session.activeSessionId = undefined;
+      }
 
       await deviceRepository.updateStatus(deviceId, DeviceStatus.OFFLINE);
       await deviceRepository.endSession(deviceId, reason.toString() || `closed_${code}`);

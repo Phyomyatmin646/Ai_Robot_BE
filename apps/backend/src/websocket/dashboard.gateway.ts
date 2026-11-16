@@ -146,5 +146,31 @@ export const dashboardBroadcast = {
     if (!io) return;
     io.to(SocketRooms.user(userId)).emit('reminder:triggered', { reminderId, title });
   },
+
+  /** Emit RFID card scan detected event */
+  emitRfidScan(
+    deviceId: string,
+    userId: string,
+    payload: {
+      deviceId: string;
+      scanId: string;
+      cardUid?: string;
+      title: string;
+      category: string;
+      timestamp: number;
+    }
+  ): void {
+    if (!io) return;
+    io.to(SocketRooms.device(deviceId)).emit('rfid:scan', payload);
+    io.to(SocketRooms.user(userId)).emit('rfid:scan', payload);
+  },
+
+  /** Emit RFID educational learning result */
+  emitRfidResult(deviceId: string, userId: string, result: unknown): void {
+    if (!io) return;
+    const payload = { deviceId, result, timestamp: Date.now() };
+    io.to(SocketRooms.device(deviceId)).emit('rfid:result', payload);
+    io.to(SocketRooms.user(userId)).emit('rfid:result', payload);
+  },
 };
 

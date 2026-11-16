@@ -20,6 +20,7 @@ import { knowledgeRoutes } from './modules/knowledge/knowledge.routes.js';
 import { mcpRoutes } from './modules/mcp/mcp.routes.js';
 import { settingsRoutes } from './modules/settings/settings.routes.js';
 import { analyticsRoutes } from './modules/analytics/analytics.routes.js';
+import { rfidRoutes } from './modules/rfid/rfid.routes.js';
 import { registerEsp32WebSocketRoute } from './websocket/esp32.gateway.js';
 
 export async function buildApp(): Promise<FastifyInstance> {
@@ -99,6 +100,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       await api.register(mcpRoutes, { prefix: '/mcp' });
       await api.register(settingsRoutes, { prefix: '/settings' });
       await api.register(analyticsRoutes, { prefix: '/analytics' });
+      await api.register(rfidRoutes, { prefix: '/rfid' });
     },
     { prefix: config.API_PREFIX }
   );

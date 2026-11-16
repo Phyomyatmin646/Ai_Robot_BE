@@ -65,9 +65,17 @@ export class VoiceService {
     _deviceId: string,
     _userId: string,
     sessionId: string,
-    _totalChunks: number
+    totalChunks?: number
   ): Promise<void> {
-    logger.debug({ sessionId }, 'User audio stream end signaled');
+    logger.debug({ sessionId, totalChunks }, 'User audio stream end signaled');
+    const session = this.activeSessions.get(sessionId);
+    if (session) {
+      session.sendAudioStreamEnd();
+    }
+  }
+
+  getActiveSession(sessionId: string): GeminiLiveSession | undefined {
+    return this.activeSessions.get(sessionId);
   }
 
   endSession(sessionId: string): void {
@@ -76,6 +84,13 @@ export class VoiceService {
       session.close();
       this.activeSessions.delete(sessionId);
       logger.info({ sessionId }, 'Voice session ended');
+    }
+  }
+
+  clearAllSessions(): void {
+    for (const [id, session] of this.activeSessions.entries()) {
+      session.close();
+      this.activeSessions.delete(id);
     }
   }
 }

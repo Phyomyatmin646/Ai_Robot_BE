@@ -5,6 +5,21 @@ import type { DeviceConfig } from './device.js';
 import type { Message } from './conversation.js';
 import type { Notification } from './notification.js';
 import type { LatencyMetrics } from './ai.js';
+import type {
+  RfidScanPayload,
+  RfidScanResultEvent,
+  RfidLearningStartEvent,
+  RfidLearningEndEvent,
+  RfidErrorEvent,
+} from './rfid.js';
+
+export type {
+  RfidScanPayload,
+  RfidScanResultEvent,
+  RfidLearningStartEvent,
+  RfidLearningEndEvent,
+  RfidErrorEvent,
+};
 
 // ============================================
 // Robot Real-Time States
@@ -149,6 +164,8 @@ export interface DashboardEvents {
   'device:heartbeat': DeviceHeartbeatEvent;
   'robot:state': { deviceId: string; state: RobotState; sessionId?: string; timestamp: number };
   'robot:touch': TouchSensorEvent;
+  'rfid:scan': { deviceId: string; scanId: string; cardUid?: string; title: string; category: string; timestamp: number };
+  'rfid:result': { deviceId: string; result: RfidLearningStartEvent };
   'conversation:message': { conversationId: string; message: Message };
   'notification:new': Notification;
   'reminder:triggered': { reminderId: string; title: string };
