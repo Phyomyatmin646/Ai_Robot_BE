@@ -9,14 +9,18 @@ on:
     branches:
       - master
       - main
-  workflow_dispatch: # Allows manual trigger from GitHub Actions UI
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-robot-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  # -------------------------------------------------------------
-  # Job 1: Build, Lint & Automated Tests
-  # -------------------------------------------------------------
   test:
-    name: Test & Build
+    name: Test, Build & Validate Deployment Config
     runs-on: ubuntu-latest
 
     steps:
@@ -27,10 +31,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'npm'
+          cache: npm
 
       - name: Install Node Dependencies
-        run: npm ci || npm install
+        run: npm ci
 
       - name: Build TypeScript Packages & Backend
         run: |
@@ -40,73 +44,140 @@ jobs:
       - name: Run Backend Unit Tests
         run: npm test
 
+      - name: Validate EC2 Deployment Script Syntax
+        run: bash -n infrastructure/scripts/deploy-ec2.sh
+
       - name: Setup Python 3.12
         uses: actions/setup-python@v5
         with:
-          python-version: '3.12'
-          cache: 'pip'
-          cache-dependency-path: 'apps/ai-services/requirements.txt'
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/ai-services/requirements.txt
 
       - name: Install Python AI Services Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r apps/ai-services/requirements.txt
 
-      - name: Test Python AI Services Syntax & Imports
+      - name: Test Python AI Services Imports
         run: |
           python -c "import app.main; print('FastAPI app imports successfully')"
         working-directory: apps/ai-services
 
-  # -------------------------------------------------------------
-  # Job 2: Automated Deployment to AWS EC2 via SSH
-  # -------------------------------------------------------------
+      - name: Validate Production Compose Configuration
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
+
+      - name: Validate Caddyfile
+        run: |
+          docker run --rm \
+            -v "$PWD/infrastructure/caddy:/etc/caddy:ro" \
+            caddy:2.11.9-alpine \
+            caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
+
   deploy:
-    name: Deploy to AWS EC2
+    name: Deploy to AWS EC2 through Systems Manager
     needs: test
-    if: (github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main') && github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/master' && vars.AWS_ROLE_TO_ASSUME != '' && vars.EC2_INSTANCE_ID != ''
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
-      - name: Deploy to EC2 via SSH
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Configure AWS Credentials using GitHub OIDC
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          port: ${{ secrets.EC2_PORT || 22 }}
-          script_stop: true
-          command_timeout: 15m
-          script: |
-            set -e
-            echo "🚀 Connecting to EC2 for AI Robot deployment..."
+          role-to-assume: ${{ vars.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
 
-            # Determine project directory on EC2
-            PROJECT_DIR="${{ secrets.EC2_PROJECT_PATH }}"
-            if [ -z "$PROJECT_DIR" ]; then
-              PROJECT_DIR="$HOME/Ai_Robot_BE"
-            fi
+      - name: Deploy through AWS Systems Manager
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+          EC2_INSTANCE_ID: ${{ vars.EC2_INSTANCE_ID }}
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          : "${EC2_INSTANCE_ID:?Set the EC2_INSTANCE_ID repository variable first}"
 
-            # Clone repository if not present
-            if [ ! -d "$PROJECT_DIR" ]; then
-              echo "Cloning repository into $PROJECT_DIR..."
-              git clone https://github.com/${{ github.repository }}.git "$PROJECT_DIR"
-            fi
+          REMOTE_SCRIPT="$(cat <<'REMOTE'
+          set -Eeuo pipefail
+          PROJECT_DIR="/home/ubuntu/apps/Ai_Robot_BE"
 
-            cd "$PROJECT_DIR"
+          if [[ ! -d "$PROJECT_DIR/.git" ]]; then
+            echo "ERROR: Expected Git repository not found at $PROJECT_DIR"
+            exit 1
+          fi
 
-            # Pull latest changes from active branch
-            echo "Pulling latest code from ${{ github.ref_name }}..."
-            git fetch origin ${{ github.ref_name }}
-            git reset --hard origin/${{ github.ref_name }}
+          if [[ ! -s "$PROJECT_DIR/.env" ]]; then
+            echo "ERROR: Production .env is missing."
+            exit 1
+          fi
 
-            # Ensure .env is present
-            if [ ! -f ".env" ]; then
-              echo "❌ Error: .env file not found in $PROJECT_DIR!"
-              echo "Please create $PROJECT_DIR/.env with your production secrets (e.g. cp .env.example .env)."
-              exit 1
-            fi
+          CURRENT_BRANCH="$(sudo -u ubuntu -H git -C "$PROJECT_DIR" branch --show-current)"
+          if [[ "$CURRENT_BRANCH" != "master" ]]; then
+            echo "ERROR: Expected EC2 worktree on master; found: $CURRENT_BRANCH"
+            exit 1
+          fi
 
-            # Run production EC2 deployment script
-            chmod +x infrastructure/scripts/deploy-ec2.sh
-            ./infrastructure/scripts/deploy-ec2.sh
+          WORKTREE_STATUS="$(sudo -u ubuntu -H git -C "$PROJECT_DIR" status --porcelain --untracked-files=all)"
+          if [[ -n "$WORKTREE_STATUS" ]]; then
+            echo "ERROR: EC2 worktree is not clean. Refusing to overwrite local files."
+            printf '%s\n' "$WORKTREE_STATUS"
+            exit 1
+          fi
 
+          echo "Fetching latest master..."
+          sudo -u ubuntu -H git -C "$PROJECT_DIR" fetch origin master
+          sudo -u ubuntu -H git -C "$PROJECT_DIR" pull --ff-only origin master
+
+          echo "Running safe production deployment..."
+          sudo bash "$PROJECT_DIR/infrastructure/scripts/deploy-ec2.sh"
+          REMOTE
+          )"
+
+          PARAMETERS="$(jq -n --arg script "$REMOTE_SCRIPT" '{commands: [$script]}')"
+
+          COMMAND_ID="$(aws ssm send-command \
+            --region "$AWS_REGION" \
+            --instance-ids "$EC2_INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --comment "AI Robot deployment from GitHub Actions $GITHUB_SHA" \
+            --parameters "$PARAMETERS" \
+            --query "Command.CommandId" \
+            --output text)"
+
+          echo "SSM command ID: $COMMAND_ID"
+
+          for attempt in $(seq 1 180); do
+            INVOCATION="$(aws ssm get-command-invocation \
+              --region "$AWS_REGION" \
+              --command-id "$COMMAND_ID" \
+              --instance-id "$EC2_INSTANCE_ID" \
+              --output json 2>/dev/null || true)"
+
+            STATUS="$(printf '%s' "$INVOCATION" | jq -r '.Status // empty' 2>/dev/null || true)"
+
+            case "$STATUS" in
+              Success)
+                echo "EC2 deployment succeeded."
+                printf '%s' "$INVOCATION" | jq -r '.StandardOutputContent // empty'
+                exit 0
+                ;;
+              Failed|TimedOut|Cancelled|Cancelling|Undeliverable|Terminated)
+                echo "EC2 deployment failed with status: $STATUS"
+                printf '%s' "$INVOCATION" | jq -r '.StandardOutputContent // empty'
+                printf '%s' "$INVOCATION" | jq -r '.StandardErrorContent // empty' >&2
+                exit 1
+                ;;
+            esac
+
+            sleep 5
+          done
+
+          echo "Timed out waiting for the SSM deployment command."
+          printf '%s' "$INVOCATION" | jq -r '.StandardOutputContent // empty'
+          printf '%s' "$INVOCATION" | jq -r '.StandardErrorContent // empty' >&2
+          exit 1
