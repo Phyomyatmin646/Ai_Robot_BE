@@ -44,6 +44,9 @@ jobs:
       - name: Run Backend Unit Tests
         run: npm test
 
+      - name: Validate EC2 Deployment Script Syntax
+        run: bash -n infrastructure/scripts/deploy-ec2.sh
+
       - name: Setup Python 3.12
         uses: actions/setup-python@v5
         with:

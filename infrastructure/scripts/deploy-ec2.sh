@@ -36,6 +36,11 @@ if [[ ! -s ".env" ]]; then
   exit 1
 fi
 
+if [[ ! -s "infrastructure/caddy/Caddyfile" ]]; then
+  echo "ERROR: Caddyfile is missing from the deployment checkout."
+  exit 1
+fi
+
 chmod 600 .env
 
 echo "Validating Docker Compose configuration..."
@@ -52,10 +57,13 @@ compose run --rm --no-deps caddy caddy validate \
   --config /etc/caddy/Caddyfile --adapter caddyfile
 
 echo "Applying production services without taking the stack down..."
-compose up -d --remove-orphans --wait --wait-timeout 180
+compose up -d --remove-orphans --wait --wait-timeout 180 backend ai-services redis
 
-echo "Reloading Caddy configuration..."
-compose exec -T caddy caddy reload \
+echo "Recreating only Caddy to refresh its bind-mounted Caddyfile..."
+compose up -d --no-deps --force-recreate --wait --wait-timeout 180 caddy
+
+echo "Validating Caddy configuration inside the recreated container..."
+compose exec -T caddy caddy validate \
   --config /etc/caddy/Caddyfile --adapter caddyfile
 
 echo "Checking backend health..."
@@ -74,6 +82,25 @@ if [[ "$HEALTH_OK" != true ]]; then
   echo "ERROR: Backend health check did not succeed."
   compose ps
   compose logs --tail=100 backend ai-services caddy
+  exit 1
+fi
+
+echo "Checking public HTTPS reverse proxy..."
+PUBLIC_HEALTH_OK=false
+for attempt in $(seq 1 12); do
+  if curl --fail --silent --show-error --max-time 15 \
+      https://107.23.154.150.sslip.io/health 2>/dev/null | grep -q '"status":"ok"'; then
+    PUBLIC_HEALTH_OK=true
+    break
+  fi
+  echo "Waiting for public HTTPS health ($attempt/12)..."
+  sleep 5
+done
+
+if [[ "$PUBLIC_HEALTH_OK" != true ]]; then
+  echo "ERROR: Public HTTPS health check did not succeed."
+  compose ps
+  compose logs --tail=100 caddy
   exit 1
 fi
 
