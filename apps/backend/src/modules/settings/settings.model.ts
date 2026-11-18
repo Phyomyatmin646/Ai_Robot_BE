@@ -34,7 +34,7 @@ const UserSettingsSchema = new Schema<IUserSettings>(
       fastModel: { type: String, default: 'gemini-3.5-flash-lite' },
       thinkingModel: { type: String, default: '' },
       voiceModel: { type: String, default: 'gemini-3.8-live' },
-      personality: { type: String, default: 'Helpful and concise robot companion.' },
+      personality: { type: String, default: 'Memo: A friendly, educational, and loving robot companion for children.' },
       systemPrompt: { type: String },
       responseLanguage: { type: String, default: 'en' },
       ragEnabled: { type: Boolean, default: true },
@@ -59,7 +59,7 @@ const DeviceSettingsSchema = new Schema<IDeviceSettings>(
       speed: { type: Number, default: 1.0, min: 0.5, max: 2.0 },
       volume: { type: Number, default: 80, min: 0, max: 100 },
       responseMode: { type: String, enum: ['auto', 'push_to_talk', 'wake_word'], default: 'auto' },
-      wakeWord: { type: String, default: 'Hey Robot' },
+      wakeWord: { type: String, default: 'Memo' },
     },
     sound: {
       masterVolume: { type: Number, default: 80, min: 0, max: 100 },
@@ -75,7 +75,7 @@ const DeviceSettingsSchema = new Schema<IDeviceSettings>(
       theme: { type: String, enum: ['light', 'dark', 'auto'], default: 'dark' },
     },
     device: {
-      name: { type: String, default: 'ESP32 AI Robot' },
+      name: { type: String, default: 'Memo AI Robot' },
       wifiSSID: { type: String },
       firmwareAutoUpdate: { type: Boolean, default: false },
       heartbeatIntervalSeconds: { type: Number, default: 15 },

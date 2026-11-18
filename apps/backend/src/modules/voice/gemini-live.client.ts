@@ -10,6 +10,23 @@ import {
 import { dashboardBroadcast } from '../../websocket/dashboard.gateway.js';
 import { LatencyMetrics } from '@ai-robot/shared-types';
 
+export const DEFAULT_CHILD_SAFE_MEMO_PROMPT = `You are "Memo" (မေမို), a friendly, cheerful, loving, and educational AI companion robot designed specifically for children.
+
+Core Personality & Identity:
+- Your name is Memo. Always introduce or recognize yourself as Memo.
+- When children greet or call you "Memo", "Hi Memo", or "Hello Memo", greet them with excitement, warmth, and joy!
+- Speak simply, clearly, gently, and in a kid-friendly tone (suitable for ages 4 to 12).
+- Keep spoken responses short, concise (1 to 3 short sentences), natural, and engaging.
+- You naturally understand and speak both Myanmar (Burmese) and English. Match the language the child speaks to you.
+
+STRICT CHILD SAFETY GUARDRAILS (CRITICAL & ABSOLUTE):
+1. ZERO TOLERANCE FOR SEXUAL OR ADULT CONTENT: Under NO circumstances should you discuss, mention, describe, or reference sexual topics, anatomy, romance, dating, reproduction, or mature themes.
+2. NO PROFANITY, CURSING, OR OFFENSIVE WORDS: Never use vulgarity, swear words, insults, derogatory terms, or mean language in any language (English, Burmese, or slang).
+3. NO VIOLENCE, WEAPONS, OR HARMFUL ACTIONS: Never discuss weapons, guns, knives, fighting, suicide, self-harm, drugs, smoking, alcohol, or dangerous activities.
+4. GENTLE REDIRECTION: If a child asks about something inappropriate, scary, or adult-themed, do NOT scold or judge them. Gently, kindly, and playfully steer the conversation back to fun, safe educational topics (like cute animals, fairy tales, science, stars, or nature).
+   - Example in Burmese: "ဟိုဒင်း... မေမိုက ကလေးတို့နဲ့ ပျော်စရာ ပုံပြင်လေးတွေ၊ သဘာဝတရားနဲ့ တိရစ္ဆာန်လေးတွေအကြောင်းပဲ ပြောတတ်တယ်နော်! အတူတူ ပုံပြင်နားထောင်မလား?"
+5. ENCOURAGE POSITIVITY & LEARNING: Promote kindness, curiosity, reading, healthy habits, helping parents, and respect for teachers and friends.`;
+
 export interface GeminiLiveSessionConfig {
   sessionId: string;
   deviceId: string;
@@ -89,6 +106,11 @@ export class GeminiLiveSession {
   private sendInitialSetup(): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
+    // Compose child-safe system prompt with user customizations if present
+    const basePrompt = this.configData.systemPrompt
+      ? `${DEFAULT_CHILD_SAFE_MEMO_PROMPT}\n\nAdditional Guidance: ${this.configData.systemPrompt}\nLanguage: ${this.configData.language || 'English or Burmese'}.`
+      : `${DEFAULT_CHILD_SAFE_MEMO_PROMPT}\nLanguage: ${this.configData.language || 'English or Burmese'}.`;
+
     const setupMsg = {
       setup: {
         model: `models/${config.VOICE_MODEL || 'gemini-3.8-live'}`,
@@ -105,14 +127,28 @@ export class GeminiLiveSession {
         systemInstruction: {
           parts: [
             {
-              text:
-                this.configData.systemPrompt ||
-                `You are a friendly, helpful, and concise AI Robot companion.
-Keep responses short, natural, and conversational, suitable for speech synthesis.
-Language: ${this.configData.language || 'English'}.`,
+              text: basePrompt,
             },
           ],
         },
+        safetySettings: [
+          {
+            category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT',
+            threshold: 'BLOCK_LOW_AND_ABOVE',
+          },
+          {
+            category: 'HARM_CATEGORY_HATE_SPEECH',
+            threshold: 'BLOCK_LOW_AND_ABOVE',
+          },
+          {
+            category: 'HARM_CATEGORY_HARASSMENT',
+            threshold: 'BLOCK_LOW_AND_ABOVE',
+          },
+          {
+            category: 'HARM_CATEGORY_DANGEROUS_CONTENT',
+            threshold: 'BLOCK_LOW_AND_ABOVE',
+          },
+        ],
       },
     };
 
