@@ -39,9 +39,12 @@ export interface GeminiLiveSessionConfig {
 export class GeminiLiveSession {
   private ws: WebSocket | null = null;
   private isConnected = false;
+  private isSetupComplete = false;
   private isMock = false;
   private sessionTimeoutTimer?: NodeJS.Timeout;
   private latencyMetrics: LatencyMetrics;
+  private pendingAudioChunks: Buffer[] = [];
+  private pendingTurnComplete = false;
 
   constructor(public readonly configData: GeminiLiveSessionConfig) {
     this.latencyMetrics = {
@@ -185,9 +188,18 @@ export class GeminiLiveSession {
   sendAudioChunk(chunk: Buffer): void {
     this.resetInactivityTimeout();
 
-    if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
+    if (!this.isConnected || !this.ws || this.ws.readyState !== WebSocket.OPEN || !this.isSetupComplete) {
+      if (this.pendingAudioChunks.length < 150) {
+        this.pendingAudioChunks.push(chunk);
+      }
       return;
     }
+
+    this.sendAudioChunkDirect(chunk);
+  }
+
+  private sendAudioChunkDirect(chunk: Buffer): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
     if (this.latencyMetrics.firstAudioUpload === 0) {
       this.latencyMetrics.firstAudioUpload = Date.now();
@@ -214,7 +226,10 @@ export class GeminiLiveSession {
   sendAudioStreamEnd(): void {
     this.resetInactivityTimeout();
 
-    if (!this.isConnected) return;
+    if (!this.isConnected || !this.isSetupComplete) {
+      this.pendingTurnComplete = true;
+      return;
+    }
 
     if (this.isMock) {
       logger.info({ sessionId: this.configData.sessionId }, 'Mock voice session completing simulated turn');
@@ -274,6 +289,23 @@ export class GeminiLiveSession {
   private handleGeminiServerMessage(raw: Buffer): void {
     try {
       const response = JSON.parse(raw.toString('utf-8'));
+
+      // Handle setupComplete event: flush any audio queued while connecting
+      if (response.setupComplete) {
+        logger.info({ sessionId: this.configData.sessionId }, 'Gemini Live setup completed, flushing buffered audio');
+        this.isSetupComplete = true;
+        while (this.pendingAudioChunks.length > 0) {
+          const chunk = this.pendingAudioChunks.shift();
+          if (chunk) {
+            this.sendAudioChunkDirect(chunk);
+          }
+        }
+        if (this.pendingTurnComplete) {
+          this.pendingTurnComplete = false;
+          this.sendAudioStreamEnd();
+        }
+        return;
+      }
 
       // 1. Check for User Barge-in / Interruption event from Gemini Live
       if (response.serverContent?.interrupted) {

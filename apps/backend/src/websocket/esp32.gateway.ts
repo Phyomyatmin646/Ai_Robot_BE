@@ -49,7 +49,12 @@ export function sendAudioChunkToEsp32(deviceId: string, chunk: Buffer | Uint8Arr
   if (!session || session.socket.readyState !== WebSocket.OPEN) {
     return false;
   }
-  session.socket.send(chunk, { binary: true });
+  // Slice large audio frames into 1024-byte chunks to protect ESP32 memory and FreeRTOS RingBuffer
+  const CHUNK_SIZE = 1024;
+  for (let offset = 0; offset < chunk.length; offset += CHUNK_SIZE) {
+    const slice = chunk.subarray(offset, Math.min(offset + CHUNK_SIZE, chunk.length));
+    session.socket.send(slice, { binary: true });
+  }
   return true;
 }
 
