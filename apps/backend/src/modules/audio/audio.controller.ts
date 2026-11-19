@@ -16,7 +16,6 @@ export class AudioController {
 
     const fields = (data.fields || {}) as Record<string, any>;
     const title = (fields.title?.value as string) || data.filename || 'Uploaded Audio';
-    const category = (fields.category?.value as string) || 'stories';
     const duration = Number(fields.duration?.value) || 0;
 
     const fileBuffer = await data.toBuffer();
@@ -43,7 +42,7 @@ export class AudioController {
       sampleRate,
       duration,
       fileSize: fileBuffer.length,
-      audioType: category as AudioType,
+      audioType: AudioType.UPLOADED,
       stream,
     });
 
