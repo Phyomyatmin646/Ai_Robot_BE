@@ -138,12 +138,18 @@ export class AudioService {
     // Locate active robot session
     let targetSession = targetDeviceId ? getActiveEsp32Session(targetDeviceId) : undefined;
     if (!targetSession) {
-      // If no specific device requested or requested device not found, find user's active connected robot
+      // Find user's active connected robot
       const userSessions = getAllActiveEsp32Sessions().filter((s) => s.userId === userId);
-      if (userSessions.length === 0) {
-        throw new BadRequestError('Cannot play audio: Robot is powered off or not connected via WebSocket');
+      if (userSessions.length > 0) {
+        targetSession = userSessions[0];
+      } else {
+        const allSessions = getAllActiveEsp32Sessions();
+        if (allSessions.length > 0) {
+          targetSession = allSessions[0];
+        } else {
+          throw new BadRequestError('Cannot play audio: Robot is powered off or not connected via WebSocket');
+        }
       }
-      targetSession = userSessions[0];
     }
 
     const deviceId = targetSession.deviceId;
@@ -169,9 +175,15 @@ export class AudioService {
     // 3. Open GridFS download stream and stream directly as binary WebSocket frames
     const downloadStream = this.repo.getDownloadStreamFromGridFS(audio.storageRef);
 
+    let isFirstChunk = true;
     downloadStream.on('data', (chunk: Buffer) => {
-      // Forward binary audio chunk immediately without buffering
-      sendAudioChunkToEsp32(deviceId, chunk);
+      let pcmChunk = chunk;
+      // Strip 44-byte WAV header on first chunk if present so pure PCM 16-bit reaches the DAC
+      if (isFirstChunk && chunk.length > 44 && chunk.toString('ascii', 0, 4) === 'RIFF') {
+        pcmChunk = chunk.subarray(44);
+      }
+      isFirstChunk = false;
+      sendAudioChunkToEsp32(deviceId, pcmChunk);
     });
 
     downloadStream.on('end', () => {

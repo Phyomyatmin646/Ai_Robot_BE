@@ -1,10 +1,54 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
 import { audioService, AudioService } from './audio.service.js';
 import { successResponse, paginatedResponse } from '../../shared/response.js';
-import { AudioType } from '@ai-robot/shared-types';
+import { AudioType, AudioFormat } from '@ai-robot/shared-types';
+import { BadRequestError } from '../../shared/errors.js';
+import { Readable } from 'node:stream';
 
 export class AudioController {
   constructor(private readonly service: AudioService = audioService) {}
+
+  upload = async (request: FastifyRequest, reply: FastifyReply) => {
+    const data = await request.file();
+    if (!data) {
+      throw new BadRequestError('No audio file provided');
+    }
+
+    const fields = (data.fields || {}) as Record<string, any>;
+    const title = (fields.title?.value as string) || data.filename || 'Uploaded Audio';
+    const category = (fields.category?.value as string) || 'stories';
+    const duration = Number(fields.duration?.value) || 0;
+
+    const fileBuffer = await data.toBuffer();
+    const stream = Readable.from(fileBuffer);
+
+    let sampleRate = 16000;
+    let format = AudioFormat.WAV;
+    let mimeType = data.mimetype || 'audio/wav';
+
+    // Check WAV header for sample rate
+    if (fileBuffer.length > 28 && fileBuffer.toString('ascii', 0, 4) === 'RIFF') {
+      sampleRate = fileBuffer.readUInt32LE(24) || 16000;
+      format = AudioFormat.WAV;
+    } else if (mimeType.includes('mp3') || data.filename.endsWith('.mp3')) {
+      format = AudioFormat.MP3;
+      mimeType = 'audio/mpeg';
+    }
+
+    const audio = await this.service.saveAudio({
+      userId: request.user!.userId,
+      fileName: title,
+      mimeType,
+      format,
+      sampleRate,
+      duration,
+      fileSize: fileBuffer.length,
+      audioType: category as AudioType,
+      stream,
+    });
+
+    return reply.status(201).send(successResponse(audio, 'Audio uploaded successfully'));
+  };
 
   list = async (
     request: FastifyRequest<{

@@ -5,6 +5,15 @@ import { authenticate } from '../../middleware/auth.js';
 export async function audioRoutes(fastify: FastifyInstance): Promise<void> {
   fastify.addHook('preHandler', authenticate);
 
+  fastify.post('/upload', {
+    schema: {
+      tags: ['Audio'],
+      summary: 'Upload an audio track/story to GridFS and database',
+      security: [{ bearerAuth: [] }],
+    },
+    handler: audioController.upload,
+  });
+
   fastify.get('/', {
     schema: {
       tags: ['Audio'],
