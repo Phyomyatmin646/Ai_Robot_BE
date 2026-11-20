@@ -8,9 +8,15 @@ import type { TokenPayload, UserRole } from '@ai-robot/shared-types';
  */
 export async function authenticate(request: FastifyRequest, _reply: FastifyReply): Promise<void> {
   try {
-    const authHeader = request.headers.authorization;
+    let authHeader = request.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new UnauthorizedError('Missing or invalid Authorization header');
+      const queryToken = (request.query as any)?.token;
+      if (queryToken) {
+        authHeader = `Bearer ${queryToken}`;
+        request.headers.authorization = authHeader;
+      } else {
+        throw new UnauthorizedError('Missing or invalid Authorization header');
+      }
     }
 
     const decoded = await request.jwtVerify<TokenPayload>();

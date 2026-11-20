@@ -172,36 +172,49 @@ export class AudioService {
     targetSession.state = 'speaking';
     dashboardBroadcast.emitRobotState(deviceId, userId, 'speaking', playSessionId);
 
-    // 3. Open GridFS download stream and stream directly as binary WebSocket frames
+    // 3. Open GridFS download stream with smooth real-time pacing so ESP32 RingBuffer never overflows
     const downloadStream = this.repo.getDownloadStreamFromGridFS(audio.storageRef);
 
-    let isFirstChunk = true;
-    downloadStream.on('data', (chunk: Buffer) => {
-      let pcmChunk = chunk;
-      // Strip 44-byte WAV header on first chunk if present so pure PCM 16-bit reaches the DAC
-      if (isFirstChunk && chunk.length > 44 && chunk.toString('ascii', 0, 4) === 'RIFF') {
-        pcmChunk = chunk.subarray(44);
+    (async () => {
+      try {
+        let isFirst = true;
+        const CHUNK_SIZE = 1024;
+        const sRate = audio.sampleRate || 16000;
+        // 1024 bytes (512 samples) at 16kHz = 32ms. Stream slightly faster (~24ms) for smooth DMA buffering.
+        const paceDelayMs = Math.max(12, Math.floor((512 / sRate) * 1000) - 8);
+
+        for await (const chunk of downloadStream) {
+          if (targetSession.state !== 'speaking') break; // stopped by user
+
+          let pcmChunk = chunk as Buffer;
+          if (isFirst && pcmChunk.length > 44 && pcmChunk.toString('ascii', 0, 4) === 'RIFF') {
+            pcmChunk = pcmChunk.subarray(44);
+          }
+          isFirst = false;
+
+          for (let offset = 0; offset < pcmChunk.length; offset += CHUNK_SIZE) {
+            if (targetSession.state !== 'speaking') break;
+            const slice = pcmChunk.subarray(offset, Math.min(offset + CHUNK_SIZE, pcmChunk.length));
+            const sent = sendAudioChunkToEsp32(deviceId, slice);
+            if (!sent) break;
+            await new Promise((r) => setTimeout(r, paceDelayMs));
+          }
+        }
+
+        logger.info({ audioId, deviceId }, 'Completed audio playback stream to ESP32 robot');
+        sendControlMessageToEsp32(deviceId, 'audio:response:end', {
+          sessionId: playSessionId,
+          fileName: audio.fileName,
+        });
+        targetSession.state = 'idle';
+        dashboardBroadcast.emitRobotState(deviceId, userId, 'idle', playSessionId);
+      } catch (err) {
+        logger.error({ err, audioId, deviceId }, 'Error streaming audio from GridFS to robot');
+        sendControlMessageToEsp32(deviceId, 'audio:cancel', { reason: 'stream_read_error' });
+        targetSession.state = 'idle';
+        dashboardBroadcast.emitRobotState(deviceId, userId, 'idle', playSessionId);
       }
-      isFirstChunk = false;
-      sendAudioChunkToEsp32(deviceId, pcmChunk);
-    });
-
-    downloadStream.on('end', () => {
-      logger.info({ audioId, deviceId }, 'Completed audio playback stream to ESP32 robot');
-      sendControlMessageToEsp32(deviceId, 'audio:response:end', {
-        sessionId: playSessionId,
-        fileName: audio.fileName,
-      });
-      targetSession!.state = 'idle';
-      dashboardBroadcast.emitRobotState(deviceId, userId, 'idle', playSessionId);
-    });
-
-    downloadStream.on('error', (err) => {
-      logger.error({ err, audioId, deviceId }, 'Error streaming audio from GridFS to robot');
-      sendControlMessageToEsp32(deviceId, 'audio:cancel', { reason: 'stream_read_error' });
-      targetSession!.state = 'idle';
-      dashboardBroadcast.emitRobotState(deviceId, userId, 'idle', playSessionId);
-    });
+    })();
 
     return {
       success: true,
