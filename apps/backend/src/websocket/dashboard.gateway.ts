@@ -1,7 +1,6 @@
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { Server as HttpServer } from 'node:http';
 import { logger } from '../utils/logger.js';
-import { config } from '../config/index.js';
 import type { FastifyInstance } from 'fastify';
 import { RobotState, TouchSensorEvent, DeviceStatusEvent, DeviceHeartbeatEvent, SocketRooms } from '@ai-robot/shared-types';
 
@@ -10,10 +9,7 @@ let io: SocketIOServer | null = null;
 export function initializeDashboardSocketIO(server: HttpServer, fastify: FastifyInstance): SocketIOServer {
   io = new SocketIOServer(server, {
     cors: {
-      origin: (requestOrigin, callback) => {
-        // Allow LAN IPs, dashboard origins, or non-browser connections
-        callback(null, true);
-      },
+      origin: true,
       methods: ['GET', 'POST'],
       credentials: true,
     },
