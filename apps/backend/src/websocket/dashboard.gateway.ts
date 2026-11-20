@@ -10,7 +10,10 @@ let io: SocketIOServer | null = null;
 export function initializeDashboardSocketIO(server: HttpServer, fastify: FastifyInstance): SocketIOServer {
   io = new SocketIOServer(server, {
     cors: {
-      origin: config.corsOriginsList,
+      origin: (requestOrigin, callback) => {
+        // Allow LAN IPs, dashboard origins, or non-browser connections
+        callback(null, true);
+      },
       methods: ['GET', 'POST'],
       credentials: true,
     },
