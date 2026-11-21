@@ -6,6 +6,7 @@ import {
   sendAudioCancelToEsp32,
   sendControlMessageToEsp32,
   getActiveEsp32Session,
+  waitForEsp32AudioReady,
 } from '../../websocket/esp32.gateway.js';
 import { dashboardBroadcast } from '../../websocket/dashboard.gateway.js';
 import { LatencyMetrics } from '@ai-robot/shared-types';
@@ -286,7 +287,7 @@ export class GeminiLiveSession {
   /**
    * Handle incoming streaming response from Gemini Live
    */
-  private handleGeminiServerMessage(raw: Buffer): void {
+  private async handleGeminiServerMessage(raw: Buffer): Promise<void> {
     try {
       const response = JSON.parse(raw.toString('utf-8'));
 
@@ -358,6 +359,9 @@ export class GeminiLiveSession {
                 'speaking',
                 this.configData.sessionId
               );
+
+              // Handshake: wait briefly for ESP32 audio task to clear previous buffer
+              await waitForEsp32AudioReady(this.configData.deviceId, this.configData.sessionId, 300);
             }
 
             // Stream PCM chunk to ESP32 speaker as binary frame

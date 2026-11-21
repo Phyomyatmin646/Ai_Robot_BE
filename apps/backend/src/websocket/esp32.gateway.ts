@@ -1,4 +1,5 @@
 import { WebSocket } from 'ws';
+import { EventEmitter } from 'events';
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { logger } from '../utils/logger.js';
 import { deviceService } from '../modules/devices/device.service.js';
@@ -28,6 +29,29 @@ export interface Esp32DeviceSession {
 
 // Global registry of active ESP32 connections
 const activeConnections = new Map<string, Esp32DeviceSession>();
+
+export const esp32AudioEvents = new EventEmitter();
+
+export async function waitForEsp32AudioReady(deviceId: string, sessionId: string, timeoutMs = 350): Promise<boolean> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve(false);
+    }, timeoutMs);
+
+    const onReady = () => {
+      cleanup();
+      resolve(true);
+    };
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      esp32AudioEvents.off(`ready:${deviceId}:${sessionId}`, onReady);
+    };
+
+    esp32AudioEvents.once(`ready:${deviceId}:${sessionId}`, onReady);
+  });
+}
 
 export function getActiveEsp32Session(deviceId: string): Esp32DeviceSession | undefined {
   return activeConnections.get(deviceId);
@@ -249,6 +273,20 @@ export async function registerEsp32WebSocketRoute(fastify: FastifyInstance): Pro
                 payload.totalChunks || session.currentSequenceNumber
               );
             }
+            break;
+          }
+
+          case 'audio:ready': {
+            const sessId = (payload.sessionId as string | undefined) || '';
+            logger.info({ deviceId, sessId }, 'ESP32 acknowledged audio session readiness');
+            esp32AudioEvents.emit(`ready:${deviceId}:${sessId}`);
+            break;
+          }
+
+          case 'audio:flow': {
+            const status = (payload.status as string | undefined) || 'resume';
+            logger.info({ deviceId, status }, 'ESP32 audio buffer watermark flow control');
+            esp32AudioEvents.emit(`flow:${deviceId}`, status);
             break;
           }
 

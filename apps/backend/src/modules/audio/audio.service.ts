@@ -10,6 +10,8 @@ import {
   sendAudioChunkToEsp32,
   sendControlMessageToEsp32,
   sendAudioCancelToEsp32,
+  esp32AudioEvents,
+  waitForEsp32AudioReady,
 } from '../../websocket/esp32.gateway.js';
 import { dashboardBroadcast } from '../../websocket/dashboard.gateway.js';
 import { logger } from '../../utils/logger.js';
@@ -194,14 +196,24 @@ export class AudioService {
       totalSize: audio.fileSize,
     });
 
-    // 2. Update robot state to 'speaking'
+    // 2. Handshake: Wait for ESP32 Audio Engine to flush previous audio and acknowledge readiness
+    const isReady = await waitForEsp32AudioReady(deviceId, playSessionId, 400);
+    logger.info({ deviceId, playSessionId, isReady }, 'ESP32 audio readiness confirmed');
+
+    // 3. Update robot state to 'speaking'
     targetSession.state = 'speaking';
     dashboardBroadcast.emitRobotState(deviceId, userId, 'speaking', playSessionId);
 
-    // 3. Open GridFS download stream with smooth real-time pacing so ESP32 RingBuffer never overflows
+    // 4. Open GridFS download stream with watermark flow control
     const downloadStream = this.repo.getDownloadStreamFromGridFS(audio.storageRef);
 
     (async () => {
+      let isPaused = false;
+      const onFlow = (status: string) => {
+        isPaused = (status === 'pause');
+      };
+      esp32AudioEvents.on(`flow:${deviceId}`, onFlow);
+
       try {
         let isFirst = true;
         let sentChunks = 0;
@@ -224,6 +236,14 @@ export class AudioService {
 
           for (let offset = 0; offset < pcmChunk.length; offset += CHUNK_SIZE) {
             if (targetSession.state !== 'speaking') break;
+
+            // Watermark flow control: if buffer is 75% full, hold sending until resumed (max 2.5s)
+            let waitSteps = 0;
+            while (isPaused && waitSteps < 125) {
+              await new Promise((r) => setTimeout(r, 20));
+              waitSteps++;
+            }
+
             const slice = pcmChunk.subarray(offset, Math.min(offset + CHUNK_SIZE, pcmChunk.length));
             const sent = sendAudioChunkToEsp32(deviceId, slice);
             if (!sent) break;
@@ -249,6 +269,8 @@ export class AudioService {
         sendControlMessageToEsp32(deviceId, 'audio:cancel', { reason: 'stream_read_error' });
         targetSession.state = 'idle';
         dashboardBroadcast.emitRobotState(deviceId, userId, 'idle', playSessionId);
+      } finally {
+        esp32AudioEvents.off(`flow:${deviceId}`, onFlow);
       }
     })();
 
