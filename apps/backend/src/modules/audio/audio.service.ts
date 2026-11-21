@@ -25,6 +25,32 @@ export interface AudioFilterOptions {
   limit?: number;
 }
 
+/**
+ * Production Linear Interpolation Resampler: converts any PCM sample rate (16kHz, 22.05kHz, 44.1kHz, 48kHz)
+ * cleanly into unified 24,000 Hz 16-bit mono PCM for physical I2S output.
+ */
+function resamplePcmTo24k(input: Buffer, sourceRate: number): Buffer {
+  if (sourceRate === 24000 || sourceRate <= 0) return input;
+  const numSamples = Math.floor(input.length / 2);
+  if (numSamples < 2) return input;
+  const ratio = 24000 / sourceRate;
+  const outSamples = Math.floor(numSamples * ratio);
+  const output = Buffer.alloc(outSamples * 2);
+
+  for (let outIdx = 0; outIdx < outSamples; outIdx++) {
+    const srcPos = outIdx / ratio;
+    const srcIdx = Math.floor(srcPos);
+    const frac = srcPos - srcIdx;
+
+    const s0 = input.readInt16LE(srcIdx * 2);
+    const s1 = (srcIdx + 1 < numSamples) ? input.readInt16LE((srcIdx + 1) * 2) : s0;
+    const interp = Math.round(s0 + frac * (s1 - s0));
+    const clamped = Math.max(-32768, Math.min(32767, interp));
+    output.writeInt16LE(clamped, outIdx * 2);
+  }
+  return output;
+}
+
 export class AudioService {
   constructor(private readonly repo: AudioRepository = audioRepository) {}
 
@@ -161,7 +187,7 @@ export class AudioService {
     sendControlMessageToEsp32(deviceId, 'audio:response:start', {
       sessionId: playSessionId,
       format: audio.format || AudioFormat.PCM_16BIT,
-      sampleRate: audio.sampleRate || 16000,
+      sampleRate: 24000,
       channels: audio.channels || 1,
       bitDepth: audio.bitDepth || 16,
       fileName: audio.fileName,
@@ -178,13 +204,12 @@ export class AudioService {
     (async () => {
       try {
         let isFirst = true;
-        const CHUNK_SIZE = 1024;
-        const sRate = audio.sampleRate || 16000;
-        // 1024 bytes (512 samples) at 16kHz = 32ms. Stream slightly faster (~24ms) for smooth DMA buffering.
-        const paceDelayMs = Math.max(12, Math.floor((512 / sRate) * 1000) - 8);
+        let sentChunks = 0;
+        const CHUNK_SIZE = 960; // 960 bytes = 480 samples = 20.0ms at 24kHz 16-bit mono PCM
+        const sRate = audio.sampleRate || 24000;
 
         for await (const chunk of downloadStream) {
-          if (targetSession.state !== 'speaking') break; // stopped by user
+          if (targetSession.state !== 'speaking') break; // stopped by user or interruption
 
           let pcmChunk = chunk as Buffer;
           if (isFirst && pcmChunk.length > 44 && pcmChunk.toString('ascii', 0, 4) === 'RIFF') {
@@ -192,12 +217,23 @@ export class AudioService {
           }
           isFirst = false;
 
+          // Resample any non-24kHz source on the fly to 24kHz
+          if (sRate !== 24000) {
+            pcmChunk = resamplePcmTo24k(pcmChunk, sRate);
+          }
+
           for (let offset = 0; offset < pcmChunk.length; offset += CHUNK_SIZE) {
             if (targetSession.state !== 'speaking') break;
             const slice = pcmChunk.subarray(offset, Math.min(offset + CHUNK_SIZE, pcmChunk.length));
             const sent = sendAudioChunkToEsp32(deviceId, slice);
             if (!sent) break;
-            await new Promise((r) => setTimeout(r, paceDelayMs));
+
+            sentChunks++;
+            // Adaptive flow-control:
+            // First 75 chunks (~1.5s of audio) burst at 8ms delay to prefill the Octal PSRAM RingBuffer cushion.
+            // Chunks 76+ stream at exactly 20ms matching 24kHz physical consumption to prevent buffer overflow.
+            const delayMs = (sentChunks < 75) ? 8 : 20;
+            await new Promise((r) => setTimeout(r, delayMs));
           }
         }
 
