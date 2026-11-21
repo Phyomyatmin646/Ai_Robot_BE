@@ -390,11 +390,11 @@ Please explain this card topic to the child in ${targetLang}:`;
     const startTime = Date.now();
     const scanId = `rfid_${deviceId}_${startTime}`;
 
-    // 0. Check for Direct UID Learning Card Scan from ESP32
+    // 0. Check for Direct UID Learning Card Scan from ESP32 (only when cardData is not supplied)
     const payloadObj = (rawPayload && typeof rawPayload === 'object') ? (rawPayload as Record<string, unknown>) : {};
     const rawUid = (payloadObj.cardUid as string | undefined) || (payloadObj.uid as string | undefined);
 
-    if (rawUid && !payloadObj.title) {
+    if (rawUid && !payloadObj.cardData && !payloadObj.title) {
       const cardUid = rawUid.replace(/\s+/g, '').toUpperCase();
       const isDuplicate = await this.isDuplicateScan(deviceId, cardUid, 2500);
       if (isDuplicate) {
@@ -402,7 +402,17 @@ Please explain this card topic to the child in ${targetLang}:`;
         return { success: false };
       }
 
-      const card = await RfidCardModel.findOne({ uid: cardUid, enabled: true });
+      let card = null;
+      if (mongoose.connection.readyState === 1) {
+        try {
+          card = await RfidCardModel.findOne({ uid: cardUid, enabled: true }).maxTimeMS(2000);
+        } catch (err) {
+          logger.warn({ err, cardUid }, 'MongoDB query for RFID card failed or timed out');
+        }
+      } else {
+        logger.warn({ cardUid }, 'MongoDB is not connected. Skipping RFID card DB query.');
+      }
+
       if (card) {
         logger.info({ deviceId, cardUid, item: card.itemKey, nameEn: card.nameEn }, 'Matched registered RFID Learning Card');
         sendControlMessageToEsp32(deviceId, 'rfid:result', {
