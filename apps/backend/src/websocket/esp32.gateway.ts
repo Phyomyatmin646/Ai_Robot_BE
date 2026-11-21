@@ -32,14 +32,10 @@ const activeConnections = new Map<string, Esp32DeviceSession>();
 
 export const esp32AudioEvents = new EventEmitter();
 
-export async function waitForEsp32AudioReady(deviceId: string, sessionId: string, timeoutMs = 350): Promise<boolean> {
+export async function waitForEsp32AudioReady(deviceId: string, sessionId: string, timeoutMs = 800): Promise<boolean> {
   return new Promise((resolve) => {
-    const timer = setTimeout(() => {
-      cleanup();
-      resolve(false);
-    }, timeoutMs);
-
-    const onReady = () => {
+    let timer: NodeJS.Timeout;
+    const onReady = (_gen?: number) => {
       cleanup();
       resolve(true);
     };
@@ -48,6 +44,12 @@ export async function waitForEsp32AudioReady(deviceId: string, sessionId: string
       clearTimeout(timer);
       esp32AudioEvents.off(`ready:${deviceId}:${sessionId}`, onReady);
     };
+
+    timer = setTimeout(() => {
+      cleanup();
+      logger.warn({ deviceId, sessionId }, 'Timed out waiting for ESP32 audio:ready acknowledgement');
+      resolve(false);
+    }, timeoutMs);
 
     esp32AudioEvents.once(`ready:${deviceId}:${sessionId}`, onReady);
   });
@@ -276,17 +278,32 @@ export async function registerEsp32WebSocketRoute(fastify: FastifyInstance): Pro
             break;
           }
 
+          case 'audio:cancel': {
+            const reason = (payload.reason as string | undefined) || 'client_barge_in';
+            logger.info({ deviceId, reason }, 'ESP32 requested audio cancellation (barge-in)');
+            if (session.activeSessionId) {
+              voiceService.endSession(session.activeSessionId);
+            }
+            break;
+          }
+
           case 'audio:ready': {
             const sessId = (payload.sessionId as string | undefined) || '';
-            logger.info({ deviceId, sessId }, 'ESP32 acknowledged audio session readiness');
-            esp32AudioEvents.emit(`ready:${deviceId}:${sessId}`);
+            const gen = payload.generation as number | undefined;
+            logger.info({ deviceId, sessId, gen }, 'ESP32 acknowledged audio session readiness');
+            esp32AudioEvents.emit(`ready:${deviceId}:${sessId}`, gen);
             break;
           }
 
           case 'audio:flow': {
             const status = (payload.status as string | undefined) || 'resume';
-            logger.info({ deviceId, status }, 'ESP32 audio buffer watermark flow control');
+            const sessId = (payload.sessionId as string | undefined) || '';
+            const gen = payload.generation as number | undefined;
+            logger.info({ deviceId, status, sessId, gen }, 'ESP32 audio buffer watermark flow control');
             esp32AudioEvents.emit(`flow:${deviceId}`, status);
+            if (sessId) {
+              esp32AudioEvents.emit(`flow:${deviceId}:${sessId}`, { status, generation: gen });
+            }
             break;
           }
 

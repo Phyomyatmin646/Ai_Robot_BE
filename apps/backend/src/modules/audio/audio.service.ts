@@ -197,8 +197,12 @@ export class AudioService {
     });
 
     // 2. Handshake: Wait for ESP32 Audio Engine to flush previous audio and acknowledge readiness
-    const isReady = await waitForEsp32AudioReady(deviceId, playSessionId, 400);
-    logger.info({ deviceId, playSessionId, isReady }, 'ESP32 audio readiness confirmed');
+    const isReady = await waitForEsp32AudioReady(deviceId, playSessionId, 800);
+    if (!isReady) {
+      logger.error({ deviceId, playSessionId }, 'ESP32 audio readiness handshake failed or timed out. Aborting audio playback to prevent corrupting buffer.');
+      throw new BadRequestError('ESP32 audio readiness handshake timed out');
+    }
+    logger.info({ deviceId, playSessionId }, 'ESP32 audio readiness confirmed by handshake ACK');
 
     // 3. Update robot state to 'speaking'
     targetSession.state = 'speaking';

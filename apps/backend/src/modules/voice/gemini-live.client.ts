@@ -360,8 +360,12 @@ export class GeminiLiveSession {
                 this.configData.sessionId
               );
 
-              // Handshake: wait briefly for ESP32 audio task to clear previous buffer
-              await waitForEsp32AudioReady(this.configData.deviceId, this.configData.sessionId, 300);
+              // Handshake: wait for ESP32 audio task to clear previous buffer and confirm readiness
+              const isReady = await waitForEsp32AudioReady(this.configData.deviceId, this.configData.sessionId, 800);
+              if (!isReady) {
+                logger.error({ deviceId: this.configData.deviceId, sessionId: this.configData.sessionId }, 'ESP32 audio readiness handshake failed. Aborting audio turn.');
+                return;
+              }
             }
 
             // Stream PCM chunk to ESP32 speaker as binary frame
