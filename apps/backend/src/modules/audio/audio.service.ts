@@ -228,7 +228,7 @@ export class AudioService {
       try {
         let isFirst = true;
         let nextSend = performance.now() - 160;
-        const CHUNK_SIZE = 960; // 960 bytes = 480 samples = 20.0ms at 24kHz 16-bit mono PCM
+        const CHUNK_SIZE = 3840; // 80 ms of 24 kHz mono PCM.
         const sRate = audio.sampleRate || 24000;
 
         for await (const chunk of downloadStream) {
