@@ -176,6 +176,7 @@ export async function registerEsp32WebSocketRoute(fastify: FastifyInstance): Pro
     });
 
     // 4. Handle incoming messages from ESP32
+    let opening: Promise<unknown> = Promise.resolve();
     socket.on('message', async (data: Buffer, isBinary: boolean) => {
       // -----------------------------------------------------------------
       // A. BINARY FRAME: Direct Raw PCM Audio Chunk (Zero JSON overhead!)
@@ -191,13 +192,13 @@ export async function registerEsp32WebSocketRoute(fastify: FastifyInstance): Pro
         session.currentSequenceNumber++;
 
         // Stream audio chunk directly to Voice Service
-        await voiceService.handleIncomingAudioChunk(
-          deviceId,
-          userId,
-          session.activeSessionId,
-          data,
-          session.currentSequenceNumber
-        );
+        const id = session.activeSessionId;
+        const seq = session.currentSequenceNumber;
+        try {
+          await opening;
+          if (socket.readyState === WebSocket.OPEN && session.activeSessionId === id)
+            await voiceService.handleIncomingAudioChunk(deviceId, userId, id, data, seq);
+        } catch (err) { logger.warn({ deviceId, err }, 'Voice input session unavailable'); }
         return;
       }
 
@@ -248,22 +249,38 @@ export async function registerEsp32WebSocketRoute(fastify: FastifyInstance): Pro
 
           case 'audio:start': {
             const activeSessionId = (payload.sessionId as string | undefined) || `voice_${deviceId}_${Date.now()}`;
+            const previous = session.activeSessionId;
+            if (previous && previous !== activeSessionId) voiceService.endSession(previous);
             session.activeSessionId = activeSessionId;
             session.currentSequenceNumber = 0;
             session.state = 'listening';
             dashboardBroadcast.emitRobotState(deviceId, userId, 'listening', activeSessionId);
 
-            await voiceService.startVoiceSession(
+            if (previous === activeSessionId && voiceService.getActiveSession(activeSessionId)?.usable()) break;
+            opening = voiceService.startVoiceSession(
               deviceId,
               userId,
               activeSessionId,
               payload.format || AudioFormat.PCM_16BIT,
               payload.sampleRate || 16000
-            );
+            ).then((live) => {
+              if (!live.usable()) {
+                if (session.activeSessionId === activeSessionId && socket.readyState === WebSocket.OPEN) {
+                  sendAudioCancelToEsp32(deviceId, 'gemini_connect_failed');
+                }
+                throw new Error('Gemini connection failed');
+              }
+              if (session.activeSessionId !== activeSessionId || socket.readyState !== WebSocket.OPEN)
+                voiceService.endSession(activeSessionId);
+            });
+            await opening;
             break;
           }
 
           case 'audio:end': {
+            const id = session.activeSessionId;
+            await opening;
+            if (id !== session.activeSessionId) break;
             if (session.activeSessionId) {
               session.state = 'thinking';
               dashboardBroadcast.emitRobotState(deviceId, userId, 'thinking', session.activeSessionId);
@@ -283,6 +300,7 @@ export async function registerEsp32WebSocketRoute(fastify: FastifyInstance): Pro
             logger.info({ deviceId, reason }, 'ESP32 requested audio cancellation (barge-in)');
             if (session.activeSessionId) {
               voiceService.endSession(session.activeSessionId);
+              session.activeSessionId = undefined;
             }
             break;
           }
@@ -323,6 +341,7 @@ export async function registerEsp32WebSocketRoute(fastify: FastifyInstance): Pro
     // 5. Handle Disconnect
     socket.on('close', async (code: number, reason: Buffer) => {
       logger.info({ deviceId, code, reason: reason.toString() }, 'ESP32 WebSocket disconnected');
+      if (activeConnections.get(deviceId) !== session) return;
       activeConnections.delete(deviceId);
 
       // Clean up active voice session if device disconnects mid-conversation

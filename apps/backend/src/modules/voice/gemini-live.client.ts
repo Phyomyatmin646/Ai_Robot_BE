@@ -65,6 +65,8 @@ export class GeminiLiveSession {
    * Connect to Google Gemini Live API WebSocket endpoint
    * Using Gemini 2.0 Flash Live Multimodal WebSocket API
    */
+  usable(): boolean { return this.isConnected; }
+
   async connect(): Promise<void> {
     const apiKey = config.GEMINI_API_KEY;
     if (!apiKey) {
@@ -78,7 +80,7 @@ export class GeminiLiveSession {
 
     return new Promise((resolve, reject) => {
       try {
-        this.ws = new WebSocket(uri);
+        this.ws = new WebSocket(uri, { handshakeTimeout: 8000 });
 
         this.ws.on('open', () => {
           this.isConnected = true;
@@ -173,6 +175,7 @@ export class GeminiLiveSession {
       logger.info({ sessionId: this.configData.sessionId }, 'Voice session timed out due to inactivity');
       this.close();
       const esp32Session = getActiveEsp32Session(this.configData.deviceId);
+      if (esp32Session?.activeSessionId !== this.configData.sessionId) return;
       if (esp32Session) {
         esp32Session.state = 'idle';
         esp32Session.activeSessionId = undefined;
@@ -276,14 +279,8 @@ export class GeminiLiveSession {
 
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
-    // Signal turnComplete to Gemini Live
-    const turnCompleteMsg = {
-      clientContent: {
-        turnComplete: true,
-      },
-    };
-    this.ws.send(JSON.stringify(turnCompleteMsg));
-    logger.info({ sessionId: this.configData.sessionId }, 'Sent clientContent turnComplete to Gemini Live');
+    this.ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
+
   }
 
   /**
