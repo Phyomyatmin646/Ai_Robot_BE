@@ -122,10 +122,17 @@ describe('Hands-Free Voice Assistant Lifecycle (Feature C)', () => {
     expect(closeSpy).toHaveBeenCalled();
   });
 
-  it('should time out inactive voice session and transition robot state back to idle', async () => {
+  it.each(['current', 'replaced', 'disconnected'] as const)('handles voice inactivity for a %s session', async (state) => {
     vi.useFakeTimers();
 
     const sessionId = `voice_${mockDeviceId}_timeout`;
+    const device = {
+      deviceId: mockDeviceId, userId: mockUserId, ipAddress: '127.0.0.1',
+      socket: {} as esp32Gateway.Esp32DeviceSession['socket'],
+      lastHeartbeat: Date.now(), currentSequenceNumber: 0, state: 'thinking',
+      activeSessionId: state === 'current' ? sessionId : 'next-session',
+    } satisfies esp32Gateway.Esp32DeviceSession;
+    vi.spyOn(esp32Gateway, 'getActiveEsp32Session').mockReturnValue(state === 'disconnected' ? undefined : device);
     const liveSession = new GeminiLiveSession({
       sessionId,
       deviceId: mockDeviceId,
@@ -140,7 +147,13 @@ describe('Hands-Free Voice Assistant Lifecycle (Feature C)', () => {
     vi.advanceTimersByTime(65000);
 
     expect(closeSpy).toHaveBeenCalled();
-    expect(emitStateSpy).toHaveBeenCalledWith(mockDeviceId, mockUserId, 'idle');
+    if (state === 'current') {
+      expect(emitStateSpy).toHaveBeenCalledWith(mockDeviceId, mockUserId, 'idle');
+      expect(device.activeSessionId).toBeUndefined();
+    } else {
+      expect(emitStateSpy).not.toHaveBeenCalled();
+      expect(device.activeSessionId).toBe('next-session');
+    }
 
     vi.useRealTimers();
   });

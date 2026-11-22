@@ -47,6 +47,7 @@ export class GeminiLiveSession {
   private pendingAudioChunks: Buffer[] = [];
   private pendingTurnComplete = false;
   private audioReady = false;
+  private inputActivity = false;
 
   constructor(public readonly configData: GeminiLiveSessionConfig) {
     this.latencyMetrics = {
@@ -122,6 +123,7 @@ export class GeminiLiveSession {
     const setupMsg = {
       setup: {
         model: `models/${config.VOICE_MODEL || 'gemini-3.8-live'}`,
+        realtimeInputConfig: { automaticActivityDetection: { disabled: true } },
         generationConfig: {
           responseModalities: ['AUDIO'],
           speechConfig: {
@@ -211,6 +213,11 @@ export class GeminiLiveSession {
       this.latencyMetrics.firstAudioUpload = Date.now();
     }
 
+    if (!this.inputActivity) {
+      this.ws.send(JSON.stringify({ realtimeInput: { activityStart: {} } }));
+      this.inputActivity = true;
+    }
+
     // Wrap raw PCM audio in realtime_input format
     const audioMsg = {
       realtimeInput: {
@@ -279,7 +286,10 @@ export class GeminiLiveSession {
 
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
-    this.ws.send(JSON.stringify({ realtimeInput: { audioStreamEnd: true } }));
+    if (this.inputActivity) {
+      this.ws.send(JSON.stringify({ realtimeInput: { activityEnd: {} } }));
+      this.inputActivity = false;
+    }
 
   }
 
