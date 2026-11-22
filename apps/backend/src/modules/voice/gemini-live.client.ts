@@ -103,7 +103,11 @@ export class GeminiLiveSession {
         });
 
         this.ws.on('close', (code, reason) => {
+          const wasActive = this.isConnected && this.ws !== null;
           this.isConnected = false;
+          if (wasActive && getActiveEsp32Session(this.configData.deviceId)?.activeSessionId === this.configData.sessionId) {
+            sendAudioCancelToEsp32(this.configData.deviceId, 'gemini_connection_closed');
+          }
           logger.info({ code, reason: reason.toString(), sessionId: this.configData.sessionId }, 'Gemini Live session closed');
         });
       } catch (err) {
@@ -221,12 +225,10 @@ export class GeminiLiveSession {
     // Wrap raw PCM audio in realtime_input format
     const audioMsg = {
       realtimeInput: {
-        mediaChunks: [
-          {
-            mimeType: 'audio/pcm;rate=16000',
-            data: chunk.toString('base64'),
-          },
-        ],
+        audio: {
+          mimeType: 'audio/pcm;rate=16000',
+          data: chunk.toString('base64'),
+        },
       },
     };
 

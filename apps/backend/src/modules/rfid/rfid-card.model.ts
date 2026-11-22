@@ -26,7 +26,7 @@ const RfidCardSchema = new Schema<IRfidCard>(
       required: true,
       trim: true,
       lowercase: true,
-      enum: ['apple', 'elephant', 'cat', 'dog', 'banana'],
+      enum: ['apple', 'elephant', 'cat', 'dog', 'banana', 'snake', 'worm'],
     },
     nameEn: {
       type: String,
