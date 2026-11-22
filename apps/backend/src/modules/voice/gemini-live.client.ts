@@ -46,6 +46,7 @@ export class GeminiLiveSession {
   private latencyMetrics: LatencyMetrics;
   private pendingAudioChunks: Buffer[] = [];
   private pendingTurnComplete = false;
+  private audioReady = false;
 
   constructor(public readonly configData: GeminiLiveSessionConfig) {
     this.latencyMetrics = {
@@ -88,8 +89,9 @@ export class GeminiLiveSession {
           resolve();
         });
 
+        let pendingResponse = Promise.resolve();
         this.ws.on('message', (data: Buffer) => {
-          this.handleGeminiServerMessage(data);
+          pendingResponse = pendingResponse.then(() => this.handleGeminiServerMessage(data));
         });
 
         this.ws.on('error', (err) => {
@@ -361,15 +363,14 @@ export class GeminiLiveSession {
               );
 
               // Handshake: wait for ESP32 audio task to clear previous buffer and confirm readiness
-              const isReady = await waitForEsp32AudioReady(this.configData.deviceId, this.configData.sessionId, 800);
-              if (!isReady) {
+              this.audioReady = await waitForEsp32AudioReady(this.configData.deviceId, this.configData.sessionId, 800);
+              if (!this.audioReady) {
                 logger.error({ deviceId: this.configData.deviceId, sessionId: this.configData.sessionId }, 'ESP32 audio readiness handshake failed. Aborting audio turn.');
-                return;
               }
             }
 
             // Stream PCM chunk to ESP32 speaker as binary frame
-            sendAudioChunkToEsp32(this.configData.deviceId, pcmBuffer);
+            if (this.audioReady) sendAudioChunkToEsp32(this.configData.deviceId, pcmBuffer);
           }
         }
       }

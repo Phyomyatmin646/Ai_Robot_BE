@@ -54,6 +54,8 @@ function resamplePcmTo24k(input: Buffer, sourceRate: number): Buffer {
 }
 
 export class AudioService {
+  private readonly playbacks = new Map<string, symbol>();
+
   constructor(private readonly repo: AudioRepository = audioRepository) {}
 
   async saveAudio(params: {
@@ -181,6 +183,9 @@ export class AudioService {
     }
 
     const deviceId = targetSession.deviceId;
+    const token = Symbol();
+    this.playbacks.set(deviceId, token);
+    const isCurrent = () => this.playbacks.get(deviceId) === token;
     const playSessionId = `playback_${audioId}_${Date.now()}`;
 
     logger.info({ audioId, deviceId, fileName: audio.fileName }, 'Starting direct low-latency audio stream to ESP32 robot');
@@ -198,7 +203,9 @@ export class AudioService {
 
     // 2. Handshake: Wait for ESP32 Audio Engine to flush previous audio and acknowledge readiness
     const isReady = await waitForEsp32AudioReady(deviceId, playSessionId, 800);
+    if (!isCurrent()) throw new BadRequestError('Playback was cancelled');
     if (!isReady) {
+      this.playbacks.delete(deviceId);
       logger.error({ deviceId, playSessionId }, 'ESP32 audio readiness handshake failed or timed out. Aborting audio playback to prevent corrupting buffer.');
       throw new BadRequestError('ESP32 audio readiness handshake timed out');
     }
@@ -220,12 +227,12 @@ export class AudioService {
 
       try {
         let isFirst = true;
-        let sentChunks = 0;
+        let nextSend = performance.now() - 160;
         const CHUNK_SIZE = 960; // 960 bytes = 480 samples = 20.0ms at 24kHz 16-bit mono PCM
         const sRate = audio.sampleRate || 24000;
 
         for await (const chunk of downloadStream) {
-          if (targetSession.state !== 'speaking') break; // stopped by user or interruption
+          if (!isCurrent() || targetSession.state !== 'speaking') break; // stopped by user or interruption
 
           let pcmChunk = chunk as Buffer;
           if (isFirst && pcmChunk.length > 44 && pcmChunk.toString('ascii', 0, 4) === 'RIFF') {
@@ -239,28 +246,24 @@ export class AudioService {
           }
 
           for (let offset = 0; offset < pcmChunk.length; offset += CHUNK_SIZE) {
-            if (targetSession.state !== 'speaking') break;
+            if (!isCurrent() || targetSession.state !== 'speaking') break;
 
-            // Watermark flow control: if buffer is 75% full, hold sending until resumed (max 2.5s)
-            let waitSteps = 0;
-            while (isPaused && waitSteps < 125) {
-              await new Promise((r) => setTimeout(r, 20));
-              waitSteps++;
+            while (isPaused && isCurrent() && targetSession.state === 'speaking' && getActiveEsp32Session(deviceId) === targetSession) {
+              await new Promise((r) => setTimeout(r, 10));
+              nextSend = performance.now();
             }
+            if (!isCurrent() || targetSession.state !== 'speaking' || getActiveEsp32Session(deviceId) !== targetSession) return;
 
             const slice = pcmChunk.subarray(offset, Math.min(offset + CHUNK_SIZE, pcmChunk.length));
             const sent = sendAudioChunkToEsp32(deviceId, slice);
-            if (!sent) break;
-
-            sentChunks++;
-            // Adaptive flow-control:
-            // First 75 chunks (~1.5s of audio) burst at 8ms delay to prefill the Octal PSRAM RingBuffer cushion.
-            // Chunks 76+ stream at exactly 20ms matching 24kHz physical consumption to prevent buffer overflow.
-            const delayMs = (sentChunks < 75) ? 8 : 20;
-            await new Promise((r) => setTimeout(r, delayMs));
+            if (!sent) throw new Error('Device disconnected during playback');
+            nextSend = Math.max(nextSend, performance.now() - 160) + slice.length / 48;
+            const wait = nextSend - performance.now();
+            if (wait > 0) await new Promise((r) => setTimeout(r, wait));
           }
         }
 
+        if (!isCurrent() || targetSession.state !== 'speaking') return;
         logger.info({ audioId, deviceId }, 'Completed audio playback stream to ESP32 robot');
         sendControlMessageToEsp32(deviceId, 'audio:response:end', {
           sessionId: playSessionId,
@@ -269,11 +272,13 @@ export class AudioService {
         targetSession.state = 'idle';
         dashboardBroadcast.emitRobotState(deviceId, userId, 'idle', playSessionId);
       } catch (err) {
+        if (!isCurrent()) return;
         logger.error({ err, audioId, deviceId }, 'Error streaming audio from GridFS to robot');
         sendControlMessageToEsp32(deviceId, 'audio:cancel', { reason: 'stream_read_error' });
         targetSession.state = 'idle';
         dashboardBroadcast.emitRobotState(deviceId, userId, 'idle', playSessionId);
       } finally {
+        if (isCurrent()) this.playbacks.delete(deviceId);
         esp32AudioEvents.off(`flow:${deviceId}`, onFlow);
       }
     })();
@@ -295,6 +300,7 @@ export class AudioService {
 
     for (const session of sessions) {
       if (session) {
+        this.playbacks.delete(session.deviceId);
         sendAudioCancelToEsp32(session.deviceId, 'user_stop_request');
         session.state = 'idle';
         dashboardBroadcast.emitRobotState(session.deviceId, userId, 'idle');
