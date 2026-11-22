@@ -191,6 +191,7 @@ export class AudioService {
     logger.info({ audioId, deviceId, fileName: audio.fileName }, 'Starting direct low-latency audio stream to ESP32 robot');
 
     // 1. Notify ESP32 that audio playback is starting
+    const readyAck = waitForEsp32AudioReady(deviceId, playSessionId, 800);
     sendControlMessageToEsp32(deviceId, 'audio:response:start', {
       sessionId: playSessionId,
       format: audio.format || AudioFormat.PCM_16BIT,
@@ -202,7 +203,7 @@ export class AudioService {
     });
 
     // 2. Handshake: Wait for ESP32 Audio Engine to flush previous audio and acknowledge readiness
-    const isReady = await waitForEsp32AudioReady(deviceId, playSessionId, 800);
+    const isReady = await readyAck;
     if (!isCurrent()) throw new BadRequestError('Playback was cancelled');
     if (!isReady) {
       this.playbacks.delete(deviceId);

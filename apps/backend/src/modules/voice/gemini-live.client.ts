@@ -350,6 +350,7 @@ export class GeminiLiveSession {
               this.latencyMetrics.firstAudioResponse = Date.now();
               this.latencyMetrics.playbackStart = Date.now();
               // Notify ESP32 that audio response is starting
+              const readyAck = waitForEsp32AudioReady(this.configData.deviceId, this.configData.sessionId, 800);
               sendControlMessageToEsp32(this.configData.deviceId, 'audio:response:start', {
                 sessionId: this.configData.sessionId,
                 format: 'pcm_16bit',
@@ -370,7 +371,7 @@ export class GeminiLiveSession {
               );
 
               // Handshake: wait for ESP32 audio task to clear previous buffer and confirm readiness
-              this.audioReady = await waitForEsp32AudioReady(this.configData.deviceId, this.configData.sessionId, 800);
+              this.audioReady = await readyAck;
               if (!this.audioReady) {
                 logger.error({ deviceId: this.configData.deviceId, sessionId: this.configData.sessionId }, 'ESP32 audio readiness handshake failed. Aborting audio turn.');
               }
