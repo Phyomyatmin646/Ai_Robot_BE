@@ -339,6 +339,9 @@ export class GeminiLiveSession {
         return;
       }
 
+      const activeDevice = getActiveEsp32Session(this.configData.deviceId);
+      if (activeDevice?.activeSessionId !== this.configData.sessionId) return;
+
       // 1. Check for User Barge-in / Interruption event from Gemini Live
       if (response.serverContent?.interrupted) {
         logger.info({ sessionId: this.configData.sessionId }, 'Gemini Live detected user barge-in interruption');
@@ -393,7 +396,10 @@ export class GeminiLiveSession {
               );
 
               // Handshake: wait for ESP32 audio task to clear previous buffer and confirm readiness
-              this.audioReady = await readyAck;
+              const ready = await readyAck;
+              if (getActiveEsp32Session(this.configData.deviceId) !== activeDevice ||
+                  activeDevice.activeSessionId !== this.configData.sessionId) return;
+              this.audioReady = ready;
               if (!this.audioReady) {
                 logger.error({ deviceId: this.configData.deviceId, sessionId: this.configData.sessionId }, 'ESP32 audio readiness handshake failed. Aborting audio turn.');
               }
@@ -409,10 +415,15 @@ export class GeminiLiveSession {
       if (response.serverContent?.turnComplete) {
         this.latencyMetrics.totalDuration = Date.now() - this.latencyMetrics.audioCaptureStart;
 
-        sendControlMessageToEsp32(this.configData.deviceId, 'audio:response:end', {
-          sessionId: this.configData.sessionId,
-          duration: this.latencyMetrics.totalDuration,
-        });
+        if (this.audioReady) {
+          sendControlMessageToEsp32(this.configData.deviceId, 'audio:response:end', {
+            sessionId: this.configData.sessionId,
+            duration: this.latencyMetrics.totalDuration,
+          });
+        } else {
+          sendAudioCancelToEsp32(this.configData.deviceId, 'gemini_no_playable_audio');
+        }
+        this.audioReady = false;
 
         const esp32Session = getActiveEsp32Session(this.configData.deviceId);
         if (esp32Session) {

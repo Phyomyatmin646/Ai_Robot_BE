@@ -92,6 +92,7 @@ export class AudioService {
   }
 
   async getById(id: string, userId: string): Promise<IAudioMetadata> {
+    if (!mongoose.isObjectIdOrHexString(id)) throw new BadRequestError('Invalid audio ID');
     const audio = await this.repo.findById(id);
     if (!audio || audio.userId.toString() !== userId) {
       throw new NotFoundError('Audio recording');
