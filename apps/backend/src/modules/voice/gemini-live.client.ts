@@ -79,40 +79,59 @@ export class GeminiLiveSession {
     const host = 'generativelanguage.googleapis.com';
     const uri = `wss://${host}/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent?key=${apiKey}`;
 
+    try {
+      await this.openLiveSocket(uri);
+    } catch (error) {
+      if (!(error instanceof Error) || error.name !== 'TimeoutError') throw error;
+      logger.warn({ sessionId: this.configData.sessionId }, 'Retrying Gemini Live after setup timeout');
+      await this.openLiveSocket(uri);
+    }
+  }
+
+  private openLiveSocket(uri: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      try {
-        this.ws = new WebSocket(uri, { handshakeTimeout: 8000 });
+      const socket = new WebSocket(uri);
+      this.ws = socket;
+      let setupReady = false;
+      const deadline = setTimeout(() => {
+        const error = new Error('Gemini Live setup timed out');
+        error.name = 'TimeoutError';
+        reject(error);
+        socket.terminate();
+      }, 5000);
 
-        this.ws.on('open', () => {
-          this.isConnected = true;
-          logger.info({ sessionId: this.configData.sessionId }, 'Connected to Gemini Live WebSocket');
-
-          // Send initial setup message to configure model, voice and system prompt
-          this.sendInitialSetup();
-          resolve();
-        });
-
-        let pendingResponse = Promise.resolve();
-        this.ws.on('message', (data: Buffer) => {
-          pendingResponse = pendingResponse.then(() => this.handleGeminiServerMessage(data));
-        });
-
-        this.ws.on('error', (err) => {
-          logger.error({ err, sessionId: this.configData.sessionId }, 'Gemini Live WebSocket error');
-          reject(err);
-        });
-
-        this.ws.on('close', (code, reason) => {
-          const wasActive = this.isConnected && this.ws !== null;
-          this.isConnected = false;
-          if (wasActive && getActiveEsp32Session(this.configData.deviceId)?.activeSessionId === this.configData.sessionId) {
-            sendAudioCancelToEsp32(this.configData.deviceId, 'gemini_connection_closed');
+      socket.on('open', () => this.sendInitialSetup());
+      let pendingResponse = Promise.resolve();
+      socket.on('message', (data: Buffer) => {
+        pendingResponse = pendingResponse.then(async () => {
+          if (this.ws !== socket) return;
+          await this.handleGeminiServerMessage(data);
+          if (!setupReady && this.isSetupComplete) {
+            setupReady = true;
+            clearTimeout(deadline);
+            resolve();
           }
-          logger.info({ code, reason: reason.toString(), sessionId: this.configData.sessionId }, 'Gemini Live session closed');
         });
-      } catch (err) {
-        reject(err);
-      }
+      });
+
+      socket.on('error', (err) => {
+        logger.error({ sessionId: this.configData.sessionId }, 'Gemini Live WebSocket error');
+        if (!setupReady) {
+          clearTimeout(deadline);
+          reject(new Error('Gemini Live connection failed', { cause: err }));
+        }
+      });
+      socket.on('close', (code, reason) => {
+        clearTimeout(deadline);
+        if (!setupReady) reject(new Error(`Gemini Live closed before setup (code ${code})`));
+        if (this.ws !== socket) return;
+        this.isConnected = false;
+        this.isSetupComplete = false;
+        if (setupReady && getActiveEsp32Session(this.configData.deviceId)?.activeSessionId === this.configData.sessionId) {
+          sendAudioCancelToEsp32(this.configData.deviceId, 'gemini_connection_closed');
+        }
+        logger.info({ code, reason: reason.toString(), sessionId: this.configData.sessionId }, 'Gemini Live session closed');
+      });
     });
   }
 
@@ -304,6 +323,7 @@ export class GeminiLiveSession {
 
       // Handle setupComplete event: flush any audio queued while connecting
       if (response.setupComplete) {
+        this.isConnected = true;
         logger.info({ sessionId: this.configData.sessionId }, 'Gemini Live setup completed, flushing buffered audio');
         this.isSetupComplete = true;
         while (this.pendingAudioChunks.length > 0) {
