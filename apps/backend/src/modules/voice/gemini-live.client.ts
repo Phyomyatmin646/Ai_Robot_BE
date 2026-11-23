@@ -5,6 +5,7 @@ import {
   sendPlaybackPcmToEsp32,
   sendAudioCancelToEsp32,
   sendControlMessageToEsp32,
+  Esp32DeviceSession,
   getActiveEsp32Session,
   waitForEsp32AudioReady,
 } from '../../websocket/esp32.gateway.js';
@@ -51,6 +52,7 @@ export class GeminiLiveSession {
   private audioReady = false;
   private inputTranscript = "";
   private quickReplyPlayed = false;
+  private inputEndedAt = 0;
   private previousQuickReplyId?: string;
   private inputActivity = false;
 
@@ -244,6 +246,7 @@ export class GeminiLiveSession {
 
     if (!this.inputActivity) {
       this.inputTranscript = "";
+      this.inputEndedAt = 0;
       this.ws.send(JSON.stringify({ realtimeInput: { activityStart: {} } }));
       this.inputActivity = true;
     }
@@ -317,8 +320,56 @@ export class GeminiLiveSession {
     if (this.inputActivity) {
       this.ws.send(JSON.stringify({ realtimeInput: { activityEnd: {} } }));
       this.inputActivity = false;
+      this.inputEndedAt = Date.now();
     }
 
+  }
+
+  private async beginPlayback(device: Esp32DeviceSession, source?: 'quick_reply'): Promise<boolean> {
+    const { deviceId, sessionId, userId } = this.configData;
+    this.latencyMetrics.firstAudioResponse = Date.now();
+    const readyAck = waitForEsp32AudioReady(deviceId, sessionId, 800);
+    sendControlMessageToEsp32(deviceId, 'audio:response:start', {
+      sessionId, source, wireCodec: device.playbackCodec, format: 'pcm_16bit', sampleRate: 24000, channels: 1,
+    });
+    device.state = 'speaking';
+    dashboardBroadcast.emitRobotState(deviceId, userId, 'speaking', sessionId);
+    const ready = await readyAck;
+    if (getActiveEsp32Session(deviceId) !== device || device.activeSessionId !== sessionId) return false;
+    if (ready) this.latencyMetrics.playbackStart = Date.now();
+    else logger.error({ deviceId, sessionId }, 'ESP32 audio readiness handshake failed. Aborting audio turn.');
+    return ready;
+  }
+
+  private async playQuickReply(device: Esp32DeviceSession, reply: NonNullable<ReturnType<typeof getQuickReply>>) {
+    const { deviceId, sessionId, userId } = this.configData;
+    this.quickReplyPlayed = true;
+    this.previousQuickReplyId = undefined;
+    this.audioReady = await this.beginPlayback(device, 'quick_reply');
+    if (!this.audioReady) return;
+    const canPlay = () => this.isConnected
+      && getActiveEsp32Session(deviceId) === device
+      && device.activeSessionId === sessionId
+      && device.state === 'speaking';
+    logger.info({ replyId: reply.id, sessionId, speechEndToReadyMs: Date.now() - this.inputEndedAt }, 'Playing prerecorded voice reply');
+    dashboardBroadcast.emitTranscription(userId, sessionId, reply.text, true, 'assistant');
+    let complete = false;
+    try {
+      complete = await streamRecordedPcm(deviceId, sessionId, [reply.pcm], canPlay);
+    } catch (err) {
+      logger.error({ err, sessionId }, 'Prerecorded voice playback stalled');
+    } finally {
+      this.audioReady = false;
+    }
+    if (!canPlay()) return;
+    if (complete) {
+      this.previousQuickReplyId = reply.id;
+      sendControlMessageToEsp32(deviceId, 'audio:response:end', { sessionId });
+    } else {
+      sendAudioCancelToEsp32(deviceId, 'quick_reply_delivery_stalled');
+    }
+    device.state = 'idle';
+    dashboardBroadcast.emitRobotState(deviceId, userId, 'idle', sessionId);
   }
 
   /**
@@ -361,14 +412,23 @@ export class GeminiLiveSession {
 
       // 1. Check for User Barge-in / Interruption event from Gemini Live
       if (response.serverContent?.interrupted) {
-        this.previousQuickReplyId = undefined;
+        if (!this.quickReplyPlayed) this.previousQuickReplyId = undefined;
         logger.info({ sessionId: this.configData.sessionId }, 'Gemini Live detected user barge-in interruption');
         // Stop audio playback on ESP32 immediately
-        sendAudioCancelToEsp32(this.configData.deviceId, 'interruption');
-        return;
+        if (!this.quickReplyPlayed) sendAudioCancelToEsp32(this.configData.deviceId, 'interruption');
+        if (!response.serverContent?.turnComplete) return;
       }
 
-      const modelTurn = response.serverContent?.modelTurn;
+      // Match the final input-transcription event after the ESP32 has ended this utterance.
+      // Interim transcripts and early partial input can be prefixes of a different question.
+      if (fragment && response.serverContent?.inputTranscription?.finished !== false &&
+          this.inputEndedAt && !this.inputActivity && !this.latencyMetrics.firstAudioResponse &&
+          !response.serverContent?.interrupted && activeDevice.state === 'thinking') {
+        const reply = getQuickReply(this.inputTranscript, this.previousQuickReplyId);
+        if (reply) await this.playQuickReply(activeDevice, reply);
+      }
+
+      const modelTurn = response.serverContent?.interrupted ? undefined : response.serverContent?.modelTurn;
       if (modelTurn?.parts) {
         for (const part of modelTurn.parts) {
           // If text transcription part is returned
@@ -393,60 +453,12 @@ export class GeminiLiveSession {
               const quickReply = this.inputActivity
                 ? undefined
                 : getQuickReply(this.inputTranscript, this.previousQuickReplyId);
-              this.previousQuickReplyId = undefined;
-              this.latencyMetrics.firstAudioResponse = Date.now();
-              this.latencyMetrics.playbackStart = Date.now();
-              // Notify ESP32 that audio response is starting
-              const readyAck = waitForEsp32AudioReady(this.configData.deviceId, this.configData.sessionId, 800);
-              sendControlMessageToEsp32(this.configData.deviceId, 'audio:response:start', {
-                sessionId: this.configData.sessionId,
-                wireCodec: activeDevice.playbackCodec,
-                format: 'pcm_16bit',
-                sampleRate: 24000, // Gemini Live standard output is 24kHz PCM
-                channels: 1,
-              });
-
-              const esp32Session = getActiveEsp32Session(this.configData.deviceId);
-              if (esp32Session) {
-                esp32Session.state = 'speaking';
-              }
-
-              dashboardBroadcast.emitRobotState(
-                this.configData.deviceId,
-                this.configData.userId,
-                'speaking',
-                this.configData.sessionId
-              );
-
-              // Handshake: wait for ESP32 audio task to clear previous buffer and confirm readiness
-              const ready = await readyAck;
-              if (getActiveEsp32Session(this.configData.deviceId) !== activeDevice ||
-                  activeDevice.activeSessionId !== this.configData.sessionId) return;
-              this.audioReady = ready;
-              if (!this.audioReady) {
-                logger.error({ deviceId: this.configData.deviceId, sessionId: this.configData.sessionId }, 'ESP32 audio readiness handshake failed. Aborting audio turn.');
-              }
-              if (this.audioReady && quickReply) {
-                this.quickReplyPlayed = true;
-                logger.info({ replyId: quickReply.id, sessionId: this.configData.sessionId }, 'Playing prerecorded voice reply');
-                dashboardBroadcast.emitTranscription(this.configData.userId, this.configData.sessionId, quickReply.text, true, 'assistant');
-
-                const canPlay = () => this.isConnected
-                  && getActiveEsp32Session(this.configData.deviceId) === activeDevice
-                  && activeDevice.activeSessionId === this.configData.sessionId
-                  && activeDevice.state === 'speaking';
-                try {
-                  this.audioReady = await streamRecordedPcm(
-                    this.configData.deviceId, this.configData.sessionId, [quickReply.pcm], canPlay,
-                  );
-                } catch (err) {
-                  this.audioReady = false;
-                  logger.error({ err, sessionId: this.configData.sessionId }, 'Prerecorded voice playback stalled');
-                }
-                if (!canPlay()) return;
-                if (this.audioReady) this.previousQuickReplyId = quickReply.id;
+              if (quickReply) {
+                await this.playQuickReply(activeDevice, quickReply);
                 continue;
               }
+              this.previousQuickReplyId = undefined;
+              this.audioReady = await this.beginPlayback(activeDevice);
             }
 
             if (!this.audioReady) continue;
@@ -477,30 +489,33 @@ export class GeminiLiveSession {
       if (response.serverContent?.turnComplete) {
         this.latencyMetrics.totalDuration = Date.now() - this.latencyMetrics.audioCaptureStart;
 
-        if (!this.quickReplyPlayed) this.previousQuickReplyId = undefined;
-        if (this.audioReady) {
-          sendControlMessageToEsp32(this.configData.deviceId, 'audio:response:end', {
-            sessionId: this.configData.sessionId,
-            duration: this.latencyMetrics.totalDuration,
-          });
-        } else {
-          sendAudioCancelToEsp32(this.configData.deviceId, 'gemini_no_playable_audio');
+        if (!this.quickReplyPlayed) {
+          this.previousQuickReplyId = undefined;
+          if (this.audioReady) {
+            sendControlMessageToEsp32(this.configData.deviceId, 'audio:response:end', {
+              sessionId: this.configData.sessionId,
+              duration: this.latencyMetrics.totalDuration,
+            });
+          } else {
+            sendAudioCancelToEsp32(this.configData.deviceId, 'gemini_no_playable_audio');
+          }
+          activeDevice.state = 'idle';
+          dashboardBroadcast.emitRobotState(
+            this.configData.deviceId, this.configData.userId, 'idle', this.configData.sessionId,
+          );
+        } else if (activeDevice.state === 'speaking' && !this.audioReady) {
+          sendAudioCancelToEsp32(this.configData.deviceId, 'quick_reply_not_ready');
+          activeDevice.state = 'idle';
+          dashboardBroadcast.emitRobotState(
+            this.configData.deviceId, this.configData.userId, 'idle', this.configData.sessionId,
+          );
         }
         this.audioReady = false;
         this.quickReplyPlayed = false;
-        this.inputTranscript = "";
-
-        const esp32Session = getActiveEsp32Session(this.configData.deviceId);
-        if (esp32Session) {
-          esp32Session.state = 'idle';
+        if (!this.inputActivity && activeDevice.state !== 'thinking') {
+          this.inputTranscript = "";
+          this.inputEndedAt = 0;
         }
-
-        dashboardBroadcast.emitRobotState(
-          this.configData.deviceId,
-          this.configData.userId,
-          'idle',
-          this.configData.sessionId
-        );
 
         // Reset turn response markers for next turn
         this.latencyMetrics.firstAiResponse = 0;

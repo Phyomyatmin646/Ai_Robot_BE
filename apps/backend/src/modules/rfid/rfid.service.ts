@@ -5,7 +5,7 @@ import { config } from '../../config/index.js';
 import { isRedisConnected, getRedisClient } from '../../config/redis.js';
 import { rfidRepository, RfidRepository } from './rfid.repository.js';
 import { IRfidLearningLog } from './rfid.model.js';
-import { RfidCardModel } from './rfid-card.model.js';
+import { IRfidCard, RfidCardModel } from './rfid-card.model.js';
 import {
   RfidCardDataSchema,
   SUPPORTED_RFID_SCHEMA_VERSIONS,
@@ -36,7 +36,10 @@ export interface RfidHistoryFilterOptions {
   limit?: number;
 }
 
+type RfidDisplayCard = Pick<IRfidCard, 'itemKey' | 'nameEn' | 'nameMm'>;
+
 export class RfidService {
+  private readonly uidCards = new Map<string, { card: RfidDisplayCard; expiresAt: number }>();
   // In-memory fallback debounce map: key -> timestamp
   private inMemoryDedupMap = new Map<string, number>();
   // In-memory cache for educational AI responses: cardKey -> aiResponseText
@@ -396,21 +399,20 @@ Please explain this card topic to the child in ${targetLang}:`;
 
     if (rawUid && !payloadObj.cardData && !payloadObj.title) {
       const cardUid = rawUid.replace(/\s+/g, '').toUpperCase();
-      const isDuplicate = await this.isDuplicateScan(deviceId, cardUid, 2500);
-      if (isDuplicate) {
-        logger.info({ deviceId, cardUid }, 'Duplicate RFID card scan ignored');
-        return { success: false };
-      }
-
-      let card = null;
-      if (mongoose.connection.readyState === 1) {
+      const cached = this.uidCards.get(cardUid);
+      let card = cached && cached.expiresAt > startTime ? cached.card : null;
+      if (!card && mongoose.connection.readyState === 1) {
         try {
-          card = await RfidCardModel.findOne({ uid: cardUid, enabled: true }).maxTimeMS(2000);
+          card = await RfidCardModel.findOne({ uid: cardUid, enabled: true })
+            .select('itemKey nameEn nameMm').lean().maxTimeMS(2000);
+          this.uidCards.delete(cardUid);
+          if (card) {
+            if (this.uidCards.size >= 128) this.uidCards.delete(this.uidCards.keys().next().value!);
+            this.uidCards.set(cardUid, { card, expiresAt: Date.now() + 60_000 });
+          }
         } catch (err) {
           logger.warn({ err, cardUid }, 'MongoDB query for RFID card failed or timed out');
         }
-      } else {
-        logger.warn({ cardUid }, 'MongoDB is not connected. Skipping RFID card DB query.');
       }
 
       if (card) {
