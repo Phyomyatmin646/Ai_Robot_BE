@@ -5,7 +5,7 @@ const FRAME_BYTES = 3840;
 const BURST_BYTES = 11520;
 const MAX_SOCKET_QUEUE_BYTES = 16 * 1024;
 // Mono PCM plays at 48 bytes/ms. Send faster so the receiver can recover lost lead.
-const SEND_BYTES_PER_MS = 64;
+const SEND_BYTES_PER_MS = 80;
 
 export async function streamRecordedPcm(
   deviceId: string,
