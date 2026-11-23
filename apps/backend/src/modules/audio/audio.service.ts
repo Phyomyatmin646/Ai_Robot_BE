@@ -185,6 +185,7 @@ export class AudioService {
     const readyAck = waitForEsp32AudioReady(deviceId, playSessionId, 800);
     sendControlMessageToEsp32(deviceId, 'audio:response:start', {
       sessionId: playSessionId,
+      wireCodec: targetSession.playbackCodec,
       format: audio.format || AudioFormat.PCM_16BIT,
       sampleRate: 24000,
       channels: audio.channels || 1,

@@ -1,5 +1,6 @@
 import { WebSocket } from 'ws';
 import { EventEmitter } from 'events';
+import { ADPCM_CODEC, ADPCM_PCM_FRAME_BYTES, encodeImaAdpcm } from './ima-adpcm.js';
 import { FastifyInstance, FastifyRequest } from 'fastify';
 import { logger } from '../utils/logger.js';
 import { deviceService } from '../modules/devices/device.service.js';
@@ -22,6 +23,8 @@ export interface Esp32DeviceSession {
   socket: WebSocket;
   ipAddress: string;
   activeSessionId?: string;
+  playbackCodec?: typeof ADPCM_CODEC;
+  pausedPlaybackSessionId?: string;
   currentSequenceNumber: number;
   lastHeartbeat: number;
   state: RobotState;
@@ -92,6 +95,7 @@ export function sendControlMessageToEsp32(deviceId: string, event: string, data:
   if (!session || session.socket.readyState !== WebSocket.OPEN) {
     return false;
   }
+  if (event === 'audio:response:start') session.pausedPlaybackSessionId = undefined;
   const payload = JSON.stringify({
     event,
     timestamp: Date.now(),
@@ -101,9 +105,17 @@ export function sendControlMessageToEsp32(deviceId: string, event: string, data:
   return true;
 }
 
-/**
- * Send cancel signal to ESP32 for barge-in interruption
- */
+// Only call for a response that advertised the negotiated codec in its start event.
+export function sendPlaybackPcmToEsp32(deviceId: string, pcm: Buffer, codec?: typeof ADPCM_CODEC): boolean {
+  if (!codec) return sendAudioChunkToEsp32(deviceId, pcm);
+  for (let offset = 0; offset < pcm.length; offset += ADPCM_PCM_FRAME_BYTES) {
+    const end = Math.min(offset + ADPCM_PCM_FRAME_BYTES, pcm.length & ~1);
+    if (end > offset && !sendAudioChunkToEsp32(deviceId, encodeImaAdpcm(pcm.subarray(offset, end)))) return false;
+  }
+  return true;
+}
+
+/** Send cancel signal to ESP32 for barge-in interruption. */
 export function sendAudioCancelToEsp32(deviceId: string, reason = 'interruption'): void {
   sendControlMessageToEsp32(deviceId, 'audio:cancel', { reason });
   const session = activeConnections.get(deviceId);
@@ -147,6 +159,7 @@ export async function registerEsp32WebSocketRoute(fastify: FastifyInstance): Pro
       userId,
       socket,
       ipAddress: clientIp,
+      playbackCodec: req.headers['x-audio-codec'] === ADPCM_CODEC ? ADPCM_CODEC : undefined,
       currentSequenceNumber: 0,
       lastHeartbeat: Date.now(),
       state: 'idle',
@@ -320,6 +333,10 @@ export async function registerEsp32WebSocketRoute(fastify: FastifyInstance): Pro
             logger.info({ deviceId, status, sessId, gen }, 'ESP32 audio buffer watermark flow control');
             esp32AudioEvents.emit(`flow:${deviceId}`, status);
             if (sessId) {
+              if (status === 'pause') session.pausedPlaybackSessionId = sessId;
+              if (status === 'resume' && session.pausedPlaybackSessionId === sessId) {
+                session.pausedPlaybackSessionId = undefined;
+              }
               esp32AudioEvents.emit(`flow:${deviceId}:${sessId}`, { status, generation: gen });
             }
             break;

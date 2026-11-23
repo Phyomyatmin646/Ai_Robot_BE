@@ -2,7 +2,7 @@ import { WebSocket } from 'ws';
 import { logger } from '../../utils/logger.js';
 import { config } from '../../config/index.js';
 import {
-  sendAudioChunkToEsp32,
+  sendPlaybackPcmToEsp32,
   sendAudioCancelToEsp32,
   sendControlMessageToEsp32,
   getActiveEsp32Session,
@@ -400,6 +400,7 @@ export class GeminiLiveSession {
               const readyAck = waitForEsp32AudioReady(this.configData.deviceId, this.configData.sessionId, 800);
               sendControlMessageToEsp32(this.configData.deviceId, 'audio:response:start', {
                 sessionId: this.configData.sessionId,
+                wireCodec: activeDevice.playbackCodec,
                 format: 'pcm_16bit',
                 sampleRate: 24000, // Gemini Live standard output is 24kHz PCM
                 channels: 1,
@@ -448,8 +449,26 @@ export class GeminiLiveSession {
               }
             }
 
-            // Stream PCM chunk to ESP32 speaker as binary frame
-            if (this.audioReady) sendAudioChunkToEsp32(this.configData.deviceId, pcmBuffer);
+            if (!this.audioReady) continue;
+            const sessionId = this.configData.sessionId;
+            const canPlay = () => this.isConnected
+              && getActiveEsp32Session(this.configData.deviceId) === activeDevice
+              && activeDevice.activeSessionId === sessionId
+              && activeDevice.state === 'speaking';
+            const deadline = performance.now() + 8000;
+            while (activeDevice.playbackCodec && canPlay() &&
+                   (activeDevice.pausedPlaybackSessionId === sessionId || activeDevice.socket.bufferedAmount >= 4096)) {
+              if (performance.now() >= deadline) {
+                this.audioReady = false;
+                sendAudioCancelToEsp32(this.configData.deviceId, 'gemini_audio_delivery_stalled');
+                break;
+              }
+              await new Promise<void>((resolve) => setTimeout(resolve, 20));
+            }
+            if (!canPlay()) return;
+            if (this.audioReady && !sendPlaybackPcmToEsp32(
+              this.configData.deviceId, pcmBuffer, activeDevice.playbackCodec,
+            )) this.audioReady = false;
           }
         }
       }
