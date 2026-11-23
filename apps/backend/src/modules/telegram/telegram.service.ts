@@ -9,14 +9,13 @@ export class TelegramService {
     this.botToken = config.TELEGRAM_BOT_TOKEN;
     this.isConfigured = Boolean(this.botToken && this.botToken.length > 10);
     if (!this.isConfigured) {
-      logger.info('Telegram Bot is not configured. Telegram notifications will be logged to console.');
+      logger.info('Telegram Bot is not configured. Telegram notifications cannot be delivered.');
     }
   }
 
-  async sendMessage(chatId: string, text: string, parseMode = 'HTML'): Promise<boolean> {
+  async sendMessage(chatId: string, text: string, parseMode: string | null = 'HTML'): Promise<boolean> {
     if (!this.isConfigured) {
-      logger.info({ chatId, text }, '[Mock Telegram] Notification sent');
-      return true;
+      return false;
     }
 
     try {
@@ -24,10 +23,11 @@ export class TelegramService {
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(5000),
         body: JSON.stringify({
           chat_id: chatId,
           text,
-          parse_mode: parseMode,
+          ...(parseMode ? { parse_mode: parseMode } : {}),
           disable_web_page_preview: true,
         }),
       });
@@ -40,7 +40,7 @@ export class TelegramService {
 
       return true;
     } catch (error) {
-      logger.error({ error }, 'Failed to deliver Telegram notification');
+      logger.error({ errorName: error instanceof Error ? error.name : 'UnknownError' }, 'Failed to deliver Telegram notification');
       return false;
     }
   }

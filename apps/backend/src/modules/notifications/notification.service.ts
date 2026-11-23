@@ -32,13 +32,15 @@ export class NotificationService {
 
     for (const channel of channelsToSend) {
       if (channel === 'telegram') {
-        const canSendTelegram = notificationsConfig ? notificationsConfig.telegramEnabled : true;
-        const chatId = user.telegramChatId || notificationsConfig?.telegramChatId;
+        // Linking a chat in the dashboard opts in. Keep support for legacy settings-only links.
+        const chatId = user.telegramChatId ||
+          (notificationsConfig?.telegramEnabled ? notificationsConfig.telegramChatId : undefined);
 
-        if (canSendTelegram && chatId) {
+        if (chatId) {
           const sent = await this.telegram.sendMessage(
             chatId,
-            `🔔 <b>${params.title}</b>\n\n${params.message}`
+            `🔔 ${params.title}\n\n${params.message}`,
+            null
           );
           const doc = await this.repo.create({
             userId: new mongoose.Types.ObjectId(params.userId) as unknown as mongoose.Types.ObjectId,
