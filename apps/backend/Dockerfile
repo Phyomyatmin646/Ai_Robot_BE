@@ -31,6 +31,7 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/packages/shared-types ./packages/shared-types
 COPY --from=builder /app/apps/backend/package*.json ./apps/backend/
 COPY --from=builder /app/apps/backend/dist ./apps/backend/dist
+COPY --from=builder /app/apps/backend/assets ./apps/backend/assets
 
 # Non-root user for security
 USER node

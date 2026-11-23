@@ -1,0 +1,227 @@
+[
+  {
+    "id": "greeting",
+    "aliases": [
+      "hi",
+      "hello",
+      "hey memo",
+      "hi memo",
+      "hello memo",
+      "good morning",
+      "မင်္ဂလာပါ",
+      "hi memo မင်္ဂလာပါ",
+      "ဟိုင်း မေမို မင်္ဂလာပါ",
+      "မေမို မင်္ဂလာပါ"
+    ],
+    "text": "Hi! I'm Memo. Ready to learn with me?"
+  },
+  {
+    "id": "how-are-you",
+    "aliases": [
+      "how are you",
+      "how are you memo",
+      "နေကောင်းလား"
+    ],
+    "text": "I'm doing great! Thanks for asking."
+  },
+  {
+    "id": "lesson-today",
+    "aliases": [
+      "what are we learning today",
+      "what will we learn today",
+      "what are you teaching today",
+      "what is todays lesson",
+      "ဒီနေ့ ဘာစာသင်မှာလဲ",
+      "ဒီနေ့ဘာစာသင်မှာလဲ"
+    ],
+    "text": "Let's practice the first four letters. A, B, C, and D!"
+  },
+  {
+    "id": "abcd",
+    "aliases": [
+      "a b c d",
+      "abcd",
+      "say a b c d",
+      "say abcd",
+      "read a b c d",
+      "a b c d ဆိုပြ"
+    ],
+    "text": "A. B. C. D. Now you try!"
+  },
+  {
+    "id": "alphabet",
+    "aliases": [
+      "say the alphabet",
+      "recite the alphabet",
+      "tell me the alphabet",
+      "say the abcs"
+    ],
+    "text": "A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z."
+  },
+  {
+    "id": "count-to-five",
+    "aliases": [
+      "count to five",
+      "count to 5",
+      "say the numbers one to five",
+      "memo ရေ တစ်ကနေ ငါးအထိ ရေတွက်ပြပါ",
+      "မေမိုရေ တစ်ကနေ ငါးအထိ ရေတွက်ပြပါ",
+      "တစ်ကနေ ငါးအထိ ရေတွက်ပြပါ",
+      "တစ်ကနေငါးအထိရေတွက်ပြပါ"
+    ],
+    "text": "One, two, three, four, five!"
+  },
+  {
+    "id": "letter-a",
+    "aliases": [
+      "what sound does a make",
+      "what sound does the letter a make",
+      "teach me the letter a",
+      "what is a for"
+    ],
+    "text": "A is for apple. Apple begins with the short A sound."
+  },
+  {
+    "id": "letter-b",
+    "aliases": [
+      "what sound does b make",
+      "what sound does the letter b make",
+      "teach me the letter b",
+      "what is b for"
+    ],
+    "text": "B is for ball. Ball and bear begin with the same sound."
+  },
+  {
+    "id": "thank-you",
+    "aliases": [
+      "thank you",
+      "thanks",
+      "thank you memo",
+      "ကျေးဇူးတင်ပါတယ်"
+    ],
+    "text": "You're welcome! Great job learning today."
+  },
+  {
+    "id": "goodbye",
+    "aliases": [
+      "goodbye",
+      "good bye",
+      "bye",
+      "see you later",
+      "goodbye memo",
+      "bye bye",
+      "good night",
+      "memo ရေ ဒီနေ့တော့ ဒီလောက်ပဲနော် bye bye",
+      "မေမိုရေ ဒီနေ့တော့ ဒီလောက်ပဲနော် bye bye",
+      "ဒီနေ့တော့ ဒီလောက်ပဲနော် bye bye",
+      "ဒီနေ့တော့ ဒီလောက်ပဲနော် ဘိုင်ဘိုင်"
+    ],
+    "text": "Bye! See you next time."
+  },
+  {
+    "id": "memo-name",
+    "aliases": [
+      "what is your name",
+      "whats your name",
+      "what is your name memo",
+      "memo whats your name",
+      "memo ရဲ့ နာမည်က ဘာလဲ",
+      "မေမိုရဲ့နာမည်ကဘာလဲ",
+      "မေမို ရဲ့ နာမည်က ဘာလဲ"
+    ],
+    "text": "My name is Memo! What's your name?"
+  },
+  {
+    "id": "favorite-color",
+    "aliases": [
+      "what is your favorite color",
+      "whats your favorite color",
+      "what color do you like",
+      "memo က ဘယ်အရောင်ကြိုက်လဲ",
+      "မေမိုက ဘယ်အရောင်ကြိုက်လဲ",
+      "မေမိုကဘယ်အရောင်ကြိုက်လဲ"
+    ],
+    "text": "My favorite color is blue. What's your favorite color?"
+  },
+  {
+    "id": "cat-sound",
+    "aliases": [
+      "what sound does a cat make",
+      "what sound do cats make",
+      "what does a cat say",
+      "ကြောင်လေးတွေက ဘာသံထွက်လဲ",
+      "ကြောင်လေးတွေကဘာသံထွက်လဲ"
+    ],
+    "text": "Cats say, meow, meow! Do you like cats?"
+  },
+  {
+    "id": "apple-word",
+    "aliases": [
+      "what is apple in english",
+      "how do you say apple in english",
+      "what is the english word for ပန်းသီး",
+      "memo ရေ ပန်းသီးကို အင်္ဂလိပ်လို ဘယ်လိုခေါ်လဲ",
+      "မေမိုရေ ပန်းသီးကို အင်္ဂလိပ်လို ဘယ်လိုခေါ်လဲ",
+      "ပန်းသီးကို အင်္ဂလိပ်လို ဘယ်လိုခေါ်လဲ",
+      "ပန်းသီးကိုအင်္ဂလိပ်လိုဘယ်လိုခေါ်လဲ"
+    ],
+    "text": "The English word is apple. Apple starts with the letter A!"
+  },
+  {
+    "id": "elephant-riddle",
+    "aliases": [
+      "ask me a riddle",
+      "tell me a riddle",
+      "give me a riddle",
+      "memo ရေ ပဟေဠိမေးပါဦး",
+      "မေမိုရေ ပဟေဠိမေးပါဦး",
+      "ပဟေဠိမေးပါဦး"
+    ],
+    "text": "Here's a riddle. Which big animal has a long trunk and likes to eat green leaves?"
+  },
+  {
+    "id": "elephant-riddle-answer",
+    "requiresPreviousReply": "elephant-riddle",
+    "aliases": [
+      "elephant",
+      "an elephant",
+      "its an elephant",
+      "the answer is elephant",
+      "the answer is an elephant",
+      "ဆင်",
+      "ဆင်လေ",
+      "ဆင်ပါ"
+    ],
+    "text": "That's right! It's an elephant. Great job!"
+  },
+  {
+    "id": "rabbit-story",
+    "aliases": [
+      "tell me a short story",
+      "tell me a story",
+      "tell me a little story",
+      "memo ရေ ပုံပြင်တိုတိုလေး ပြောပြပါ",
+      "မေမိုရေ ပုံပြင်တိုတိုလေး ပြောပြပါ",
+      "ပုံပြင်တိုတိုလေး ပြောပြပါ",
+      "ပုံပြင်တိုတိုလေးပြောပြပါ"
+    ],
+    "text": "Once upon a time, a little rabbit found a bird that had lost its way. The rabbit helped the bird get home. The bird smiled and said, thank you! Helping a friend can make their whole day brighter."
+  },
+  {
+    "id": "two-plus-three",
+    "aliases": [
+      "what is two plus three",
+      "whats two plus three",
+      "two plus three",
+      "what is 2 plus 3",
+      "2 plus 3",
+      "2 3",
+      "memo ရေ ၂ ပေါင်း ၃ ဘယ်လောက်လဲ",
+      "မေမိုရေ ၂ ပေါင်း ၃ ဘယ်လောက်လဲ",
+      "၂ ပေါင်း ၃ ဘယ်လောက်လဲ",
+      "၂ပေါင်း၃ဘယ်လောက်လဲ",
+      "2 ပေါင်း 3 ဘယ်လောက်လဲ"
+    ],
+    "text": "Two plus three equals five! Hold up two fingers, then three more. Now count all five."
+  }
+]
