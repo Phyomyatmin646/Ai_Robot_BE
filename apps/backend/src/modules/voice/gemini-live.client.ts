@@ -8,6 +8,7 @@ import {
   getActiveEsp32Session,
   waitForEsp32AudioReady,
 } from '../../websocket/esp32.gateway.js';
+import { streamRecordedPcm } from '../../websocket/pcm-playback.js';
 import { dashboardBroadcast } from '../../websocket/dashboard.gateway.js';
 import { LatencyMetrics } from '@ai-robot/shared-types';
 import { getQuickReply, normalizeQuestion } from './quick-replies.js';
@@ -429,19 +430,19 @@ export class GeminiLiveSession {
                 logger.info({ replyId: quickReply.id, sessionId: this.configData.sessionId }, 'Playing prerecorded voice reply');
                 dashboardBroadcast.emitTranscription(this.configData.userId, this.configData.sessionId, quickReply.text, true, 'assistant');
 
-                // Keep the sender slightly ahead of the 48 KB/s playback clock.
-                // The initial burst fits even the firmware's 32 KiB SRAM fallback.
-                const started = performance.now();
-                for (let offset = 0; offset < quickReply.pcm.length; offset += 4096) {
-                  const delay = (offset - 16384) / 48 - (performance.now() - started);
-                  if (delay > 0) await new Promise<void>((resolve) => setTimeout(resolve, delay));
-                  if (getActiveEsp32Session(this.configData.deviceId) !== activeDevice ||
-                      activeDevice.activeSessionId !== this.configData.sessionId) return;
-                  if (!sendAudioChunkToEsp32(this.configData.deviceId, quickReply.pcm.subarray(offset, offset + 4096))) {
-                    this.audioReady = false;
-                    break;
-                  }
+                const canPlay = () => this.isConnected
+                  && getActiveEsp32Session(this.configData.deviceId) === activeDevice
+                  && activeDevice.activeSessionId === this.configData.sessionId
+                  && activeDevice.state === 'speaking';
+                try {
+                  this.audioReady = await streamRecordedPcm(
+                    this.configData.deviceId, this.configData.sessionId, [quickReply.pcm], canPlay,
+                  );
+                } catch (err) {
+                  this.audioReady = false;
+                  logger.error({ err, sessionId: this.configData.sessionId }, 'Prerecorded voice playback stalled');
                 }
+                if (!canPlay()) return;
                 if (this.audioReady) this.previousQuickReplyId = quickReply.id;
                 continue;
               }

@@ -119,11 +119,11 @@ export class AudioController {
 
   /** Stop/cancel audio playback on robot */
   stopOnDevice = async (
-    request: FastifyRequest<{ Body?: { deviceId?: string } }>,
+    request: FastifyRequest<{ Body?: { deviceId?: string; sessionId?: string } }>,
     reply: FastifyReply
   ) => {
-    await this.service.stopOnDevice(request.user!.userId, request.body?.deviceId);
-    return reply.send(successResponse(null, 'Audio playback stopped on robot'));
+    await this.service.stopOnDevice(request.user!.userId, request.body?.deviceId, request.body?.sessionId);
+    return reply.send(successResponse(null, 'Robot playback stop requested'));
   };
 }
 

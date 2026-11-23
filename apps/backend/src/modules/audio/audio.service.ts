@@ -2,17 +2,17 @@ import { audioRepository, AudioRepository } from './audio.repository.js';
 import { IAudioMetadata } from './audio.model.js';
 import { NotFoundError, BadRequestError } from '../../shared/errors.js';
 import { Readable } from 'node:stream';
+import { randomUUID } from 'node:crypto';
 import mongoose from 'mongoose';
 import { AudioType, AudioFormat } from '@ai-robot/shared-types';
 import {
   getActiveEsp32Session,
   getAllActiveEsp32Sessions,
-  sendAudioChunkToEsp32,
   sendControlMessageToEsp32,
   sendAudioCancelToEsp32,
-  esp32AudioEvents,
   waitForEsp32AudioReady,
 } from '../../websocket/esp32.gateway.js';
+import { streamRecordedPcm } from '../../websocket/pcm-playback.js';
 import { dashboardBroadcast } from '../../websocket/dashboard.gateway.js';
 import { logger } from '../../utils/logger.js';
 
@@ -54,7 +54,7 @@ function resamplePcmTo24k(input: Buffer, sourceRate: number): Buffer {
 }
 
 export class AudioService {
-  private readonly playbacks = new Map<string, symbol>();
+  private readonly playbacks = new Map<string, string>();
 
   constructor(private readonly repo: AudioRepository = audioRepository) {}
 
@@ -163,31 +163,21 @@ export class AudioService {
   /**
    * Ultra-low-latency direct streaming playback of database audio onto the physical robot speaker
    */
-  async playOnDevice(audioId: string, userId: string, targetDeviceId?: string): Promise<{ success: boolean; deviceId: string; fileName: string }> {
+  async playOnDevice(audioId: string, userId: string, targetDeviceId?: string): Promise<{ success: boolean; deviceId: string; fileName: string; sessionId: string }> {
     const audio = await this.getById(audioId, userId);
 
-    // Locate active robot session
-    let targetSession = targetDeviceId ? getActiveEsp32Session(targetDeviceId) : undefined;
-    if (!targetSession) {
-      // Find user's active connected robot
-      const userSessions = getAllActiveEsp32Sessions().filter((s) => s.userId === userId);
-      if (userSessions.length > 0) {
-        targetSession = userSessions[0];
-      } else {
-        const allSessions = getAllActiveEsp32Sessions();
-        if (allSessions.length > 0) {
-          targetSession = allSessions[0];
-        } else {
-          throw new BadRequestError('Cannot play audio: Robot is powered off or not connected via WebSocket');
-        }
-      }
+    const targetSession = targetDeviceId
+      ? getActiveEsp32Session(targetDeviceId)
+      : getAllActiveEsp32Sessions().find((session) => session.userId === userId);
+    if (targetSession?.userId !== userId) {
+      throw new BadRequestError('Cannot play audio: Selected robot is not connected');
     }
 
     const deviceId = targetSession.deviceId;
-    const token = Symbol();
-    this.playbacks.set(deviceId, token);
-    const isCurrent = () => this.playbacks.get(deviceId) === token;
-    const playSessionId = `playback_${audioId}_${Date.now()}`;
+    const playSessionId = `playback_${randomUUID()}`;
+
+    this.playbacks.set(deviceId, playSessionId);
+    const isCurrent = () => this.playbacks.get(deviceId) === playSessionId;
 
     logger.info({ audioId, deviceId, fileName: audio.fileName }, 'Starting direct low-latency audio stream to ESP32 robot');
 
@@ -221,51 +211,25 @@ export class AudioService {
     const downloadStream = this.repo.getDownloadStreamFromGridFS(audio.storageRef);
 
     (async () => {
-      let isPaused = false;
-      const onFlow = (status: string) => {
-        isPaused = (status === 'pause');
-      };
-      esp32AudioEvents.on(`flow:${deviceId}`, onFlow);
+      const canPlay = () => isCurrent()
+        && targetSession.state === 'speaking'
+        && getActiveEsp32Session(deviceId) === targetSession;
+      async function* pcmChunks() {
+        let first = true;
+        for await (const chunk of downloadStream) {
+          let pcm = chunk as Buffer;
+          if (first && pcm.length > 44 && pcm.toString('ascii', 0, 4) === 'RIFF') {
+            pcm = pcm.subarray(44);
+          }
+          first = false;
+          yield resamplePcmTo24k(pcm, audio.sampleRate || 24000);
+        }
+      }
 
       try {
-        let isFirst = true;
-        let nextSend = performance.now() - 160;
-        const CHUNK_SIZE = 3840; // 80 ms of 24 kHz mono PCM.
-        const sRate = audio.sampleRate || 24000;
-
-        for await (const chunk of downloadStream) {
-          if (!isCurrent() || targetSession.state !== 'speaking') break; // stopped by user or interruption
-
-          let pcmChunk = chunk as Buffer;
-          if (isFirst && pcmChunk.length > 44 && pcmChunk.toString('ascii', 0, 4) === 'RIFF') {
-            pcmChunk = pcmChunk.subarray(44);
-          }
-          isFirst = false;
-
-          // Resample any non-24kHz source on the fly to 24kHz
-          if (sRate !== 24000) {
-            pcmChunk = resamplePcmTo24k(pcmChunk, sRate);
-          }
-
-          for (let offset = 0; offset < pcmChunk.length; offset += CHUNK_SIZE) {
-            if (!isCurrent() || targetSession.state !== 'speaking') break;
-
-            while (isPaused && isCurrent() && targetSession.state === 'speaking' && getActiveEsp32Session(deviceId) === targetSession) {
-              await new Promise((r) => setTimeout(r, 10));
-              nextSend = performance.now();
-            }
-            if (!isCurrent() || targetSession.state !== 'speaking' || getActiveEsp32Session(deviceId) !== targetSession) return;
-
-            const slice = pcmChunk.subarray(offset, Math.min(offset + CHUNK_SIZE, pcmChunk.length));
-            const sent = sendAudioChunkToEsp32(deviceId, slice);
-            if (!sent) throw new Error('Device disconnected during playback');
-            nextSend = Math.max(nextSend, performance.now() - 160) + slice.length / 48;
-            const wait = nextSend - performance.now();
-            if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-          }
-        }
-
-        if (!isCurrent() || targetSession.state !== 'speaking') return;
+        const complete = await streamRecordedPcm(deviceId, playSessionId, pcmChunks(), canPlay);
+        if (!canPlay()) return;
+        if (!complete) throw new Error('Device disconnected during playback');
         logger.info({ audioId, deviceId }, 'Completed audio playback stream to ESP32 robot');
         sendControlMessageToEsp32(deviceId, 'audio:response:end', {
           sessionId: playSessionId,
@@ -281,7 +245,6 @@ export class AudioService {
         dashboardBroadcast.emitRobotState(deviceId, userId, 'idle', playSessionId);
       } finally {
         if (isCurrent()) this.playbacks.delete(deviceId);
-        esp32AudioEvents.off(`flow:${deviceId}`, onFlow);
       }
     })();
 
@@ -289,24 +252,38 @@ export class AudioService {
       success: true,
       deviceId,
       fileName: audio.fileName,
+      sessionId: playSessionId,
     };
   }
 
   /**
    * Immediately silence playback on the robot (interruption)
    */
-  async stopOnDevice(userId: string, targetDeviceId?: string): Promise<void> {
-    const sessions = targetDeviceId
-      ? [getActiveEsp32Session(targetDeviceId)].filter(Boolean)
-      : getAllActiveEsp32Sessions().filter((s) => s.userId === userId);
+  async stopOnDevice(userId: string, targetDeviceId?: string, playbackSessionId?: string): Promise<void> {
+    const sessions = getAllActiveEsp32Sessions().filter((session) =>
+      session.userId === userId && (!targetDeviceId || session.deviceId === targetDeviceId));
+    if (targetDeviceId && sessions.length === 0) {
+      throw new BadRequestError('Cannot stop audio: Selected robot is not connected');
+    }
 
     for (const session of sessions) {
-      if (session) {
-        this.playbacks.delete(session.deviceId);
+      const currentPlayback = this.playbacks.get(session.deviceId);
+      if (playbackSessionId) {
+        if (currentPlayback && currentPlayback !== playbackSessionId) continue;
+        if (!sendControlMessageToEsp32(session.deviceId, 'audio:cancel', {
+          reason: 'user_stop_request',
+          sessionId: playbackSessionId,
+        })) {
+          throw new BadRequestError('Cannot stop audio: Selected robot is not connected');
+        }
+        // The ESP32 may still be draining this playback after the sender has finished.
+        if (!currentPlayback) continue;
+      } else {
         sendAudioCancelToEsp32(session.deviceId, 'user_stop_request');
-        session.state = 'idle';
-        dashboardBroadcast.emitRobotState(session.deviceId, userId, 'idle');
       }
+      this.playbacks.delete(session.deviceId);
+      session.state = 'idle';
+      dashboardBroadcast.emitRobotState(session.deviceId, userId, 'idle');
     }
   }
 }

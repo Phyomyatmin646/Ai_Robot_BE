@@ -74,6 +74,7 @@ export async function audioRoutes(fastify: FastifyInstance): Promise<void> {
         type: 'object',
         properties: {
           deviceId: { type: 'string', description: 'Target robot device ID' },
+          sessionId: { type: 'string', maxLength: 63 },
         },
       },
     },
