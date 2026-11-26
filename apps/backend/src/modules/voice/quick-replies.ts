@@ -28,7 +28,7 @@ try {
   logger.warn({ err }, 'Voice quick replies unavailable; continuing with Gemini Live');
 }
 
-export function getQuickReply(question: string, previousReplyId?: string): { id: string; text: string; pcm: Buffer } | undefined {
+export function getQuickReply(question: string, previousReplyId?: string): { id: string; text: string; pcm: Buffer; requiresPreviousReply?: string } | undefined {
   const reply = replies.get(normalizeQuestion(question));
   if (!reply || (reply.requiresPreviousReply && reply.requiresPreviousReply !== previousReplyId)) return undefined;
   try {
@@ -38,7 +38,7 @@ export function getQuickReply(question: string, previousReplyId?: string): { id:
       if (!pcm.length || pcm.length % 2 !== 0) throw new Error('Invalid PCM length');
       pcmCache.set(reply.id, pcm);
     }
-    return { id: reply.id, text: reply.text, pcm };
+    return { id: reply.id, text: reply.text, pcm, requiresPreviousReply: reply.requiresPreviousReply };
   } catch (err) {
     logger.warn({ err, replyId: reply.id }, 'Could not load prerecorded voice reply');
     return undefined;

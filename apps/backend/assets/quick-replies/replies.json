@@ -44,7 +44,23 @@
       "say a b c d",
       "say abcd",
       "read a b c d",
-      "a b c d ဆိုပြ"
+      "a b c d ဆိုပြ",
+      "a b c d please",
+      "say a b c d please",
+      "say the letters a b c d",
+      "can you say a b c d",
+      "can you say the letters a b c d",
+      "can you say abcd",
+      "abc d",
+      "a b c and d",
+      "say a b c and d",
+      "memo say a b c d",
+      "read abcd",
+      "teach me abcd",
+      "practice a b c d",
+      "abcd ဆိုပြ",
+      "abcd ပြောပြ",
+      "a b c d ပြောပြပါ"
     ],
     "text": "A. B. C. D. Now you try!"
   },
@@ -54,7 +70,9 @@
       "say the alphabet",
       "recite the alphabet",
       "tell me the alphabet",
-      "say the abcs"
+      "say the abcs",
+      "tell me the abcs",
+      "recite the abcs"
     ],
     "text": "A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z."
   },
@@ -175,7 +193,16 @@
       "give me a riddle",
       "memo ရေ ပဟေဠိမေးပါဦး",
       "မေမိုရေ ပဟေဠိမေးပါဦး",
-      "ပဟေဠိမေးပါဦး"
+      "ပဟေဠိမေးပါဦး",
+      "play a game",
+      "lets play a game",
+      "play a fun game",
+      "lets play a fun game",
+      "fun game",
+      "play a riddle game",
+      "game ကစားမယ်",
+      "ဂိမ်းကစားမယ်",
+      "ဂိမ်းကစားကြမယ်"
     ],
     "text": "Here's a riddle. Which big animal has a long trunk and likes to eat green leaves?"
   },
@@ -203,7 +230,15 @@
       "memo ရေ ပုံပြင်တိုတိုလေး ပြောပြပါ",
       "မေမိုရေ ပုံပြင်တိုတိုလေး ပြောပြပါ",
       "ပုံပြင်တိုတိုလေး ပြောပြပါ",
-      "ပုံပြင်တိုတိုလေးပြောပြပါ"
+      "ပုံပြင်တိုတိုလေးပြောပြပါ",
+      "tell a story",
+      "tell me a story please",
+      "memo tell me a story",
+      "please tell me a story",
+      "ပုံပြင်ပြောပြပါ",
+      "ပုံပြင် ပြောပြပါ",
+      "ပုံပြင်တစ်ပုဒ်ပြောပြပါ",
+      "ပုံပြင် တစ်ပုဒ် ပြောပြပါ"
     ],
     "text": "Once upon a time, a little rabbit found a bird that had lost its way. The rabbit helped the bird get home. The bird smiled and said, thank you! Helping a friend can make their whole day brighter."
   },

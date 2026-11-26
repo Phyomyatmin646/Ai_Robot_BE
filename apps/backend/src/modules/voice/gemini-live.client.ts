@@ -21,7 +21,8 @@ Core Personality & Identity:
 - Your name is Memo. Always introduce or recognize yourself as Memo.
 - When children greet or call you "Memo", "Hi Memo", or "Hello Memo", greet them with excitement, warmth, and joy!
 - Speak simply, clearly, gently, and in a kid-friendly tone (suitable for ages 4 to 12).
-- Keep spoken responses short, concise (1 to 3 short sentences), natural, and engaging.
+- Keep ordinary answers short and natural. For a story request, tell a story about any subject the child names. For a game request, start the requested game or offer a short riddle if they did not name one.
+- When asked to say specific letters, say those letters aloud in order.
 - You understand both Burmese and English. Always reply in spoken English, including when the child speaks Burmese or requests another language.
 
 STRICT CHILD SAFETY GUARDRAILS (CRITICAL & ABSOLUTE):
@@ -32,12 +33,9 @@ STRICT CHILD SAFETY GUARDRAILS (CRITICAL & ABSOLUTE):
    - Redirect in English, for example: "Would you like to hear a fun story about animals instead?"
 5. ENCOURAGE POSITIVITY & LEARNING: Promote kindness, curiosity, reading, healthy habits, helping parents, and respect for teachers and friends.`;
 
-const CONVERSATION_GUIDANCE = [
-  'Always answer aloud in English. Speak clearly at a steady, natural pace.',
-  'Treat each turn as part of the current conversation. Use earlier turns to resolve short follow-ups and pronouns.',
-  'Answer the current question directly. Keep examples and follow-up questions on the current topic until the child moves on.',
-  'Ask one brief clarifying question if the reference is unclear. If the child ends the conversation, give a brief closing.',
-].join(' ');
+const ACTIVITY_REPLIES = new Set([
+  'abcd', 'alphabet', 'rabbit-story', 'elephant-riddle', 'elephant-riddle-answer',
+]);
 
 export interface GeminiLiveSessionConfig {
   sessionId: string;
@@ -58,11 +56,14 @@ export class GeminiLiveSession {
   private pendingAudioChunks: Buffer[] = [];
   private pendingTurnComplete = false;
   private audioReady = false;
-  private inputTranscript = "";
   private quickReplyPlayed = false;
   private inputEndedAt = 0;
+  private activityTranscript = '';
+  private activityTranscriptIncomplete = false;
   private previousQuickReplyId?: string;
   private inputActivity = false;
+  private utterance = 0;
+  private responseUtterance = 0;
   private speechLeveler = new SpeechLeveler();
 
   constructor(public readonly configData: GeminiLiveSessionConfig) {
@@ -155,11 +156,9 @@ export class GeminiLiveSession {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
     // Compose child-safe system prompt with user customizations if present
-    const basePrompt = [
-      DEFAULT_CHILD_SAFE_MEMO_PROMPT,
-      this.configData.systemPrompt ? `Additional Guidance: ${this.configData.systemPrompt}` : '',
-      CONVERSATION_GUIDANCE,
-    ].filter(Boolean).join('\n\n');
+    const basePrompt = this.configData.systemPrompt
+      ? `${DEFAULT_CHILD_SAFE_MEMO_PROMPT}\n\nAdditional Guidance: ${this.configData.systemPrompt}\nAlways answer aloud in English. This language rule also applies to the additional guidance.`
+      : `${DEFAULT_CHILD_SAFE_MEMO_PROMPT}\nAlways answer aloud in English. This language rule also applies to the additional guidance.`;
 
     const setupMsg = {
       setup: {
@@ -256,8 +255,10 @@ export class GeminiLiveSession {
     }
 
     if (!this.inputActivity) {
-      this.inputTranscript = "";
+      this.utterance++;
       this.inputEndedAt = 0;
+      this.activityTranscript = '';
+      this.activityTranscriptIncomplete = false;
       this.ws.send(JSON.stringify({ realtimeInput: { activityStart: {} } }));
       this.inputActivity = true;
     }
@@ -339,6 +340,7 @@ export class GeminiLiveSession {
   private async beginPlayback(device: Esp32DeviceSession, source?: 'quick_reply'): Promise<boolean> {
     const { deviceId, sessionId, userId } = this.configData;
     this.latencyMetrics.firstAudioResponse = Date.now();
+    this.responseUtterance = this.utterance;
     this.speechLeveler = new SpeechLeveler();
     const readyAck = waitForEsp32AudioReady(deviceId, sessionId, 800);
     sendControlMessageToEsp32(deviceId, 'audio:response:start', {
@@ -347,7 +349,8 @@ export class GeminiLiveSession {
     device.state = 'speaking';
     dashboardBroadcast.emitRobotState(deviceId, userId, 'speaking', sessionId);
     const ready = await readyAck;
-    if (getActiveEsp32Session(deviceId) !== device || device.activeSessionId !== sessionId) return false;
+    if (getActiveEsp32Session(deviceId) !== device || device.activeSessionId !== sessionId ||
+        this.responseUtterance !== this.utterance || this.inputActivity) return false;
     if (ready) this.latencyMetrics.playbackStart = Date.now();
     else logger.error({ deviceId, sessionId }, 'ESP32 audio readiness handshake failed. Aborting audio turn.');
     return ready;
@@ -362,7 +365,9 @@ export class GeminiLiveSession {
     const canPlay = () => this.isConnected
       && getActiveEsp32Session(deviceId) === device
       && device.activeSessionId === sessionId
-      && device.state === 'speaking';
+      && device.state === 'speaking'
+      && this.responseUtterance === this.utterance
+      && !this.inputActivity;
     logger.info({ replyId: reply.id, sessionId, speechEndToReadyMs: Date.now() - this.inputEndedAt }, 'Playing prerecorded voice reply');
     dashboardBroadcast.emitTranscription(userId, sessionId, reply.text, true, 'assistant');
     let complete = false;
@@ -412,35 +417,44 @@ export class GeminiLiveSession {
       const activeDevice = getActiveEsp32Session(this.configData.deviceId);
       if (activeDevice?.activeSessionId !== this.configData.sessionId) return;
 
-      const fragment = response.serverContent?.inputTranscription?.text;
-      if (typeof fragment === 'string' && this.latencyMetrics.firstAudioResponse === 0) {
-        const segment = normalizeQuestion(fragment);
-        if (segment && segment !== this.inputTranscript) {
-          this.inputTranscript = segment.startsWith(this.inputTranscript + ' ')
-            ? segment
-            : (this.inputTranscript + ' ' + segment).trim();
+      const content = response.serverContent;
+      const capturing = this.inputActivity || activeDevice.state === 'listening';
+      const staleResponse = this.responseUtterance !== 0 && this.responseUtterance !== this.utterance;
+      const awaitingPlayback = Boolean(this.inputEndedAt) && !capturing && !staleResponse;
+      if (content?.interrupted) {
+        if (!this.quickReplyPlayed) this.previousQuickReplyId = undefined;
+        logger.info({ sessionId: this.configData.sessionId }, 'Gemini Live detected user barge-in interruption');
+        if (!capturing && !staleResponse && !this.quickReplyPlayed) {
+          sendAudioCancelToEsp32(this.configData.deviceId, 'interruption');
+        }
+        if (!content.turnComplete) return;
+      }
+
+      const transcript = content?.inputTranscription;
+      if (awaitingPlayback && !content?.interrupted && activeDevice.state === 'thinking' &&
+          !this.latencyMetrics.firstAudioResponse && typeof transcript?.text === 'string') {
+        const text = normalizeQuestion(transcript.text);
+        if (text) {
+          // Input transcription may be split across events or repeated as a growing snapshot.
+          const previous = this.activityTranscript;
+          if (transcript.finished === true && this.activityTranscriptIncomplete) {
+            this.activityTranscript = text;
+          } else if (!previous || text.startsWith(previous + ' ')) {
+            this.activityTranscript = text;
+          } else if (text !== previous) {
+            this.activityTranscript += ' ' + text;
+          }
+          this.activityTranscriptIncomplete = transcript.finished === false;
+          if (transcript.finished === true) {
+            const reply = getQuickReply(this.activityTranscript, this.previousQuickReplyId);
+            if (reply && (this.utterance === 1 || ACTIVITY_REPLIES.has(reply.id))) {
+              await this.playQuickReply(activeDevice, reply);
+            }
+          }
         }
       }
 
-      // 1. Check for User Barge-in / Interruption event from Gemini Live
-      if (response.serverContent?.interrupted) {
-        if (!this.quickReplyPlayed) this.previousQuickReplyId = undefined;
-        logger.info({ sessionId: this.configData.sessionId }, 'Gemini Live detected user barge-in interruption');
-        // Stop audio playback on ESP32 immediately
-        if (!this.quickReplyPlayed) sendAudioCancelToEsp32(this.configData.deviceId, 'interruption');
-        if (!response.serverContent?.turnComplete) return;
-      }
-
-      // Match the final input-transcription event after the ESP32 has ended this utterance.
-      // Interim transcripts and early partial input can be prefixes of a different question.
-      if (fragment && response.serverContent?.inputTranscription?.finished !== false &&
-          this.inputEndedAt && !this.inputActivity && !this.latencyMetrics.firstAudioResponse &&
-          !response.serverContent?.interrupted && activeDevice.state === 'thinking') {
-        const reply = getQuickReply(this.inputTranscript, this.previousQuickReplyId);
-        if (reply) await this.playQuickReply(activeDevice, reply);
-      }
-
-      const modelTurn = response.serverContent?.interrupted ? undefined : response.serverContent?.modelTurn;
+      const modelTurn = awaitingPlayback && !content?.interrupted ? content?.modelTurn : undefined;
       if (modelTurn?.parts) {
         for (const part of modelTurn.parts) {
           // If text transcription part is returned
@@ -462,11 +476,13 @@ export class GeminiLiveSession {
             const pcmBuffer = Buffer.from(part.inlineData.data, 'base64');
 
             if (this.latencyMetrics.firstAudioResponse === 0) {
-              const quickReply = this.inputActivity
-                ? undefined
-                : getQuickReply(this.inputTranscript, this.previousQuickReplyId);
-              if (quickReply) {
-                await this.playQuickReply(activeDevice, quickReply);
+              // Some Gemini models do not send a finished flag. At first model audio,
+              // allow an exact activity request, while general follow-ups stay with Gemini.
+              const activity = !this.activityTranscriptIncomplete
+                ? getQuickReply(this.activityTranscript, this.previousQuickReplyId)
+                : undefined;
+              if (activity && ACTIVITY_REPLIES.has(activity.id)) {
+                await this.playQuickReply(activeDevice, activity);
                 continue;
               }
               this.previousQuickReplyId = undefined;
@@ -478,7 +494,9 @@ export class GeminiLiveSession {
             const canPlay = () => this.isConnected
               && getActiveEsp32Session(this.configData.deviceId) === activeDevice
               && activeDevice.activeSessionId === sessionId
-              && activeDevice.state === 'speaking';
+              && activeDevice.state === 'speaking'
+              && this.responseUtterance === this.utterance
+              && !this.inputActivity;
             const deadline = performance.now() + 8000;
             while (activeDevice.playbackCodec && canPlay() &&
                    (activeDevice.pausedPlaybackSessionId === sessionId || activeDevice.socket.bufferedAmount >= 4096)) {
@@ -498,10 +516,13 @@ export class GeminiLiveSession {
       }
 
       // Check if turn is complete
-      if (response.serverContent?.turnComplete) {
+      if (content?.turnComplete) {
+        const newerInput = this.inputActivity || capturing ||
+          (!content.interrupted && activeDevice.state === 'listening') ||
+          (this.responseUtterance !== 0 && this.responseUtterance !== this.utterance);
         this.latencyMetrics.totalDuration = Date.now() - this.latencyMetrics.audioCaptureStart;
 
-        if (!this.quickReplyPlayed) {
+        if (!newerInput && !this.quickReplyPlayed) {
           this.previousQuickReplyId = undefined;
           if (this.audioReady) {
             sendControlMessageToEsp32(this.configData.deviceId, 'audio:response:end', {
@@ -515,7 +536,7 @@ export class GeminiLiveSession {
           dashboardBroadcast.emitRobotState(
             this.configData.deviceId, this.configData.userId, 'idle', this.configData.sessionId,
           );
-        } else if (activeDevice.state === 'speaking' && !this.audioReady) {
+        } else if (!newerInput && activeDevice.state === 'speaking' && !this.audioReady) {
           sendAudioCancelToEsp32(this.configData.deviceId, 'quick_reply_not_ready');
           activeDevice.state = 'idle';
           dashboardBroadcast.emitRobotState(
@@ -524,10 +545,8 @@ export class GeminiLiveSession {
         }
         this.audioReady = false;
         this.quickReplyPlayed = false;
-        if (!this.inputActivity && activeDevice.state !== 'thinking') {
-          this.inputTranscript = "";
-          this.inputEndedAt = 0;
-        }
+        this.responseUtterance = 0;
+        if (!newerInput) this.inputEndedAt = 0;
 
         // Reset turn response markers for next turn
         this.latencyMetrics.firstAiResponse = 0;
