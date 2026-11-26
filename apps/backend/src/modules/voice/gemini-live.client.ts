@@ -23,7 +23,8 @@ const SELECT_PRACTICE_REPLY = 'select_practice_reply';
 const MIN_CONVERSATION_PCM_BYTES = 4_800;
 const MAX_CONVERSATION_PCM_BYTES = 24_000 * 2 * 20;
 const RESPONSE_DEADLINE_MS = 10_000;
-const ALPHABET_TRANSCRIPT_SETTLE_MS = 450;
+const PRACTICE_TRANSCRIPT_SETTLE_MS = 450;
+const EARLY_TRANSCRIPT_REPLY_IDS = new Set(['alphabet', 'apple-word', 'letter-a', 'letter-b']);
 
 interface ConversationOutput {
   chunks: Buffer[];
@@ -83,7 +84,7 @@ export class GeminiLiveSession {
   private responseUtterance = 0;
   private pendingUtterances: number[] = [];
   private retryTimer?: NodeJS.Timeout;
-  private alphabetTimer?: NodeJS.Timeout;
+  private practiceTranscriptTimer?: NodeJS.Timeout;
   private completedUtterance = 0;
   private stalledUtterance?: number;
   private conversation?: ConversationOutput;
@@ -192,6 +193,8 @@ export class GeminiLiveSession {
       'For every turn, identify the practice question directly from the spoken audio and call select_practice_reply once as soon as the turn ends.',
       'The audio can be Burmese (Myanmar), English, or a mix. Match meaning directly from the audio, including exact letters, animals, colors and numbers. Do not rely on the input transcript.',
       'Classify the current spoken question independently, even when the previous question was on the same topic. Use the previous turn to check only whether the elephant riddle is active.',
+      'For short English questions, “What sound does A make?” is letter-a and “What sound does B make?” is letter-b. Listen to the short vowel for A (ay, or a reduced vowel in fast speech) and the initial b sound for B (bee). The transcript can lose the letter. Use the audio to distinguish the letter from a full animal name or the pronoun it, and do not borrow the letter from a previous turn.',
+      '“What is apple in English?” asks for the word apple and matches apple-word. “What sound does A make?” asks for the letter sound and matches letter-a, even though its saved answer also mentions apples.',
       'In Burmese, “ကြောင်” or “ကြောင်လေး” means cat. “ကြောင်လေးတွေက ဘာသံထွက်လဲ” asks what sound cats make and matches cat-sound. For a letter pronunciation question, listen for “စာလုံး” (letter) and the named letter. The common words “ဘာသံထွက်လဲ” alone do not identify the topic.',
       'For Burmese letter questions, A sounds like “အေ” and B like “ဘီ”; “အေ စာလုံးက ဘာအသံထွက်လဲ” is letter-a and “ဘီ စာလုံးက ဘာအသံထွက်လဲ” is letter-b. Listen for the initial letter each time. If the letter is missing or unclear, do not reuse an earlier letter; ask which letter the speaker means.',
       'Important distinction: four individually spoken letters A B C D, including “A B C D ဆိုပြပါ” in Burmese, always mean abcd. Use alphabet only for an explicit request for the alphabet, ABCs, or all letters from A to Z, without a four-letter limit.',
@@ -312,7 +315,7 @@ export class GeminiLiveSession {
     if (!this.inputActivity) {
       this.utterance++;
       this.clearRetryTimer();
-      this.clearAlphabetTimer();
+      this.clearPracticeTranscriptTimer();
       this.inputEndedAt = 0;
       this.activityTranscript = '';
       this.activityTranscriptIncomplete = false;
@@ -395,7 +398,7 @@ export class GeminiLiveSession {
       this.inputEndedAt = Date.now();
       this.pendingUtterances.push(this.utterance);
       this.scheduleRetry(RESPONSE_DEADLINE_MS);
-      this.scheduleAlphabetFromTranscript();
+      this.schedulePracticeReplyFromTranscript();
     }
 
   }
@@ -433,31 +436,31 @@ export class GeminiLiveSession {
     }, ms);
   }
 
-  private clearAlphabetTimer(): void {
-    if (this.alphabetTimer) clearTimeout(this.alphabetTimer);
-    this.alphabetTimer = undefined;
+  private clearPracticeTranscriptTimer(): void {
+    if (this.practiceTranscriptTimer) clearTimeout(this.practiceTranscriptTimer);
+    this.practiceTranscriptTimer = undefined;
   }
 
-  private scheduleAlphabetFromTranscript(): void {
-    this.clearAlphabetTimer();
+  private schedulePracticeReplyFromTranscript(): void {
+    this.clearPracticeTranscriptTimer();
     const reply = this.matchPracticeReply();
-    if (reply?.id !== 'alphabet') return;
+    if (!reply || !EARLY_TRANSCRIPT_REPLY_IDS.has(reply.id)) return;
 
     const { deviceId, sessionId } = this.configData;
     const utterance = this.utterance;
     const transcript = this.activityTranscript;
-    // Some Live turns transcribe this request but never finish generating a reply.
-    this.alphabetTimer = setTimeout(() => {
-      this.alphabetTimer = undefined;
+    // These exact practice transcripts can arrive before Gemini finishes the turn.
+    this.practiceTranscriptTimer = setTimeout(() => {
+      this.practiceTranscriptTimer = undefined;
       const device = getActiveEsp32Session(deviceId);
       if (!this.isConnected || this.utterance !== utterance || !this.inputEndedAt || this.inputActivity ||
           this.responseUtterance === utterance || device?.activeSessionId !== sessionId ||
           device.state !== 'thinking' || this.activityTranscript !== transcript || this.activityTranscriptIncomplete) return;
       if (this.pendingUtterances.includes(utterance)) this.stalledUtterance = utterance;
       void this.playQuickReply(device, reply).catch((err) => {
-        logger.error({ err, sessionId }, 'Could not play alphabet reply');
+        logger.error({ err, sessionId }, 'Could not play practice transcript reply');
       });
-    }, ALPHABET_TRANSCRIPT_SETTLE_MS);
+    }, PRACTICE_TRANSCRIPT_SETTLE_MS);
   }
 
   private matchPracticeReply() {
@@ -484,7 +487,7 @@ export class GeminiLiveSession {
     const { deviceId, sessionId, userId } = this.configData;
     const utterance = this.utterance;
     this.clearRetryTimer();
-    this.clearAlphabetTimer();
+    this.clearPracticeTranscriptTimer();
     this.responseUtterance = utterance;
     this.conversation = undefined;
     // Keep the riddle available through an unintelligible answer, but not a topic change.
@@ -601,7 +604,7 @@ export class GeminiLiveSession {
         return;
       }
 
-      if (transcript) this.scheduleAlphabetFromTranscript();
+      if (transcript) this.schedulePracticeReplyFromTranscript();
 
       // Some Live turns answer directly without invoking the tool. Check the
       // practice aliases above before accepting that audio.
@@ -682,7 +685,7 @@ export class GeminiLiveSession {
 
   close(): void {
     this.clearRetryTimer();
-    this.clearAlphabetTimer();
+    this.clearPracticeTranscriptTimer();
     if (this.sessionTimeoutTimer) {
       clearTimeout(this.sessionTimeoutTimer);
       this.sessionTimeoutTimer = undefined;
