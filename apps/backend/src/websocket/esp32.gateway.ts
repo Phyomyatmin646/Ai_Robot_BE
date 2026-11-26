@@ -25,6 +25,7 @@ export interface Esp32DeviceSession {
   activeSessionId?: string;
   playbackCodec?: typeof ADPCM_CODEC;
   pausedPlaybackSessionId?: string;
+  outputSessionId?: string;
   currentSequenceNumber: number;
   lastHeartbeat: number;
   state: RobotState;
@@ -95,13 +96,20 @@ export function sendControlMessageToEsp32(deviceId: string, event: string, data:
   if (!session || session.socket.readyState !== WebSocket.OPEN) {
     return false;
   }
-  if (event === 'audio:response:start') session.pausedPlaybackSessionId = undefined;
   const payload = JSON.stringify({
     event,
     timestamp: Date.now(),
     data,
   });
   session.socket.send(payload, { binary: false });
+  const outputId = typeof data.sessionId === 'string' ? data.sessionId : undefined;
+  if (event === 'audio:response:start') {
+    session.pausedPlaybackSessionId = undefined;
+    session.outputSessionId = outputId;
+  } else if ((event === 'audio:response:end' || event === 'audio:cancel') &&
+             (!outputId || outputId === session.outputSessionId)) {
+    session.outputSessionId = undefined;
+  }
   return true;
 }
 
@@ -309,6 +317,7 @@ export async function registerEsp32WebSocketRoute(fastify: FastifyInstance): Pro
           }
 
           case 'audio:cancel': {
+            session.outputSessionId = undefined;
             const reason = (payload.reason as string | undefined) || 'client_barge_in';
             logger.info({ deviceId, reason }, 'ESP32 requested audio cancellation (barge-in)');
             if (session.activeSessionId) {

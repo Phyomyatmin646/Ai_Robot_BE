@@ -13,6 +13,7 @@ import { streamRecordedPcm } from '../../websocket/pcm-playback.js';
 import { dashboardBroadcast } from '../../websocket/dashboard.gateway.js';
 import { LatencyMetrics } from '@ai-robot/shared-types';
 import { getQuickReply, normalizeQuestion } from './quick-replies.js';
+import { levelRecordedSpeech, SpeechLeveler } from './speech-level.js';
 
 export const DEFAULT_CHILD_SAFE_MEMO_PROMPT = `You are "Memo" (မေမို), a friendly, cheerful, loving, and educational AI companion robot designed specifically for children.
 
@@ -30,6 +31,13 @@ STRICT CHILD SAFETY GUARDRAILS (CRITICAL & ABSOLUTE):
 4. GENTLE REDIRECTION: If a child asks about something inappropriate, scary, or adult-themed, do NOT scold or judge them. Gently, kindly, and playfully steer the conversation back to fun, safe educational topics (like cute animals, fairy tales, science, stars, or nature).
    - Redirect in English, for example: "Would you like to hear a fun story about animals instead?"
 5. ENCOURAGE POSITIVITY & LEARNING: Promote kindness, curiosity, reading, healthy habits, helping parents, and respect for teachers and friends.`;
+
+const CONVERSATION_GUIDANCE = [
+  'Always answer aloud in English. Speak clearly at a steady, natural pace.',
+  'Treat each turn as part of the current conversation. Use earlier turns to resolve short follow-ups and pronouns.',
+  'Answer the current question directly. Keep examples and follow-up questions on the current topic until the child moves on.',
+  'Ask one brief clarifying question if the reference is unclear. If the child ends the conversation, give a brief closing.',
+].join(' ');
 
 export interface GeminiLiveSessionConfig {
   sessionId: string;
@@ -55,6 +63,7 @@ export class GeminiLiveSession {
   private inputEndedAt = 0;
   private previousQuickReplyId?: string;
   private inputActivity = false;
+  private speechLeveler = new SpeechLeveler();
 
   constructor(public readonly configData: GeminiLiveSessionConfig) {
     this.latencyMetrics = {
@@ -146,9 +155,11 @@ export class GeminiLiveSession {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
 
     // Compose child-safe system prompt with user customizations if present
-    const basePrompt = this.configData.systemPrompt
-      ? `${DEFAULT_CHILD_SAFE_MEMO_PROMPT}\n\nAdditional Guidance: ${this.configData.systemPrompt}\nAlways answer aloud in English. This language rule also applies to the additional guidance.`
-      : `${DEFAULT_CHILD_SAFE_MEMO_PROMPT}\nAlways answer aloud in English. This language rule also applies to the additional guidance.`;
+    const basePrompt = [
+      DEFAULT_CHILD_SAFE_MEMO_PROMPT,
+      this.configData.systemPrompt ? `Additional Guidance: ${this.configData.systemPrompt}` : '',
+      CONVERSATION_GUIDANCE,
+    ].filter(Boolean).join('\n\n');
 
     const setupMsg = {
       setup: {
@@ -328,6 +339,7 @@ export class GeminiLiveSession {
   private async beginPlayback(device: Esp32DeviceSession, source?: 'quick_reply'): Promise<boolean> {
     const { deviceId, sessionId, userId } = this.configData;
     this.latencyMetrics.firstAudioResponse = Date.now();
+    this.speechLeveler = new SpeechLeveler();
     const readyAck = waitForEsp32AudioReady(deviceId, sessionId, 800);
     sendControlMessageToEsp32(deviceId, 'audio:response:start', {
       sessionId, source, wireCodec: device.playbackCodec, format: 'pcm_16bit', sampleRate: 24000, channels: 1,
@@ -355,7 +367,7 @@ export class GeminiLiveSession {
     dashboardBroadcast.emitTranscription(userId, sessionId, reply.text, true, 'assistant');
     let complete = false;
     try {
-      complete = await streamRecordedPcm(deviceId, sessionId, [reply.pcm], canPlay);
+      complete = await streamRecordedPcm(deviceId, sessionId, [levelRecordedSpeech(reply.pcm)], canPlay);
     } catch (err) {
       logger.error({ err, sessionId }, 'Prerecorded voice playback stalled');
     } finally {
@@ -479,7 +491,7 @@ export class GeminiLiveSession {
             }
             if (!canPlay()) return;
             if (this.audioReady && !sendPlaybackPcmToEsp32(
-              this.configData.deviceId, pcmBuffer, activeDevice.playbackCodec,
+              this.configData.deviceId, this.speechLeveler.apply(pcmBuffer), activeDevice.playbackCodec,
             )) this.audioReady = false;
           }
         }

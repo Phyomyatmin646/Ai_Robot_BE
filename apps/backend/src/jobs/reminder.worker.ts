@@ -1,4 +1,6 @@
 import { Worker, Job } from 'bullmq';
+import { randomUUID } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { getRedisClient } from '../config/redis.js';
 import { APP_CONSTANTS } from '../shared/constants.js';
 import { logger } from '../utils/logger.js';
@@ -7,20 +9,22 @@ import { notificationService } from '../modules/notifications/notification.servi
 import { dashboardBroadcast } from '../websocket/dashboard.gateway.js';
 import {
   sendControlMessageToEsp32,
-  sendAudioChunkToEsp32,
+  Esp32DeviceSession,
+  waitForEsp32AudioReady,
   getActiveEsp32Session,
   getAllActiveEsp32Sessions,
 } from '../websocket/esp32.gateway.js';
-import { NotificationType, RecurrenceType } from '@ai-robot/shared-types';
+import { streamRecordedPcm } from '../websocket/pcm-playback.js';
+import { NotificationType, RecurrenceType, ReminderStatus } from '@ai-robot/shared-types';
 
-/**
- * Generate a clean 16-bit 16kHz dual-tone chime alarm sound in pure PCM
- */
-function generateAlarmToneBuffer(durationSec = 2.5, sampleRate = 16000): Buffer {
-  const numSamples = Math.floor(durationSec * sampleRate);
+const ALARM_SAMPLE_RATE = 24000; // ESP32 speaker I2S rate.
+const ALARM_PCM = generateAlarmToneBuffer();
+
+function generateAlarmToneBuffer(): Buffer {
+  const numSamples = ALARM_SAMPLE_RATE * 5 / 2;
   const buffer = Buffer.alloc(numSamples * 2);
   for (let i = 0; i < numSamples; i++) {
-    const t = i / sampleRate;
+    const t = i / ALARM_SAMPLE_RATE;
     // Alternating chime frequencies (880Hz / 1320Hz)
     const freq = Math.floor(t * 4) % 2 === 0 ? 880 : 1320;
     const envelope = Math.sin(Math.PI * ((t * 4) % 1));
@@ -28,6 +32,53 @@ function generateAlarmToneBuffer(durationSec = 2.5, sampleRate = 16000): Buffer 
     buffer.writeInt16LE(Math.max(-32767, Math.min(32767, sample)), i * 2);
   }
   return buffer;
+}
+
+async function ringReminderOnRobot(session: Esp32DeviceSession): Promise<void> {
+  const { deviceId, userId } = session;
+  const connected = () => getActiveEsp32Session(deviceId) === session;
+  // Give an ongoing conversation or audio stream time to finish.
+  const deadline = Date.now() + 20_000;
+  while (connected() && (session.state !== 'idle' || session.outputSessionId)) {
+    if (Date.now() >= deadline) {
+      logger.warn({ deviceId }, 'Robot stayed busy at reminder time');
+      return;
+    }
+    await delay(250);
+  }
+  if (!connected()) return;
+
+  const sessionId = `alarm_${randomUUID()}`;
+  const ready = waitForEsp32AudioReady(deviceId, sessionId, 1500);
+  if (!sendControlMessageToEsp32(deviceId, 'audio:response:start', {
+    sessionId,
+    format: 'pcm_16bit',
+    sampleRate: ALARM_SAMPLE_RATE,
+    channels: 1,
+    wireCodec: session.playbackCodec,
+  })) return;
+
+  session.state = 'speaking';
+  dashboardBroadcast.emitRobotState(deviceId, userId, 'speaking', sessionId);
+  const ownsPlayback = () => connected() && session.outputSessionId === sessionId;
+  const canPlay = () => ownsPlayback() && session.state === 'speaking';
+  let complete = false;
+  try {
+    if (await ready && canPlay()) {
+      complete = await streamRecordedPcm(deviceId, sessionId, [ALARM_PCM], canPlay);
+    }
+    if (!complete) logger.warn({ deviceId, sessionId }, 'Robot reminder audio delivery incomplete');
+  } catch (err) {
+    logger.warn({ deviceId, sessionId, err }, 'Failed to play robot reminder');
+  } finally {
+    if (ownsPlayback()) {
+      sendControlMessageToEsp32(deviceId, complete ? 'audio:response:end' : 'audio:cancel', { sessionId });
+    }
+    if (connected() && !session.outputSessionId && session.state === 'speaking') {
+      session.state = 'idle';
+      dashboardBroadcast.emitRobotState(deviceId, userId, 'idle', sessionId);
+    }
+  }
 }
 
 export function startReminderWorker(): Worker {
@@ -45,64 +96,27 @@ export function startReminderWorker(): Worker {
         return;
       }
 
-      // 1. Send cross-channel notifications (Telegram, WebSocket)
+      if (reminder.status !== ReminderStatus.ACTIVE || reminder.scheduledAt.getTime() > Date.now()) return;
+
+      const userId = reminder.userId.toString();
+      const targetId = reminder.notifyDeviceId?.toString();
+      const targetSessions = reminder.notifyVia.includes('device')
+        ? getAllActiveEsp32Sessions().filter((session) =>
+            session.userId === userId && (!targetId || session.deviceId === targetId))
+        : [];
       await notificationService.send({
-        userId: reminder.userId.toString(),
+        userId,
         type: NotificationType.REMINDER,
         title: `Reminder: ${reminder.title}`,
         message: reminder.description || reminder.title,
         channels: reminder.notifyVia,
         data: { reminderId: reminder.id },
       });
+      dashboardBroadcast.emitReminderAlert(userId, reminder.id, reminder.title);
 
-      // 2. Alert Web Dashboard via Socket.IO
-      dashboardBroadcast.emitReminderAlert(reminder.userId.toString(), reminder.id, reminder.title);
-
-      // 3. Ring alarm and flash LED on physical ESP32 Robot if powered on
-      const targetSessions = reminder.notifyDeviceId
-        ? [getActiveEsp32Session(reminder.notifyDeviceId.toString())].filter(Boolean)
-        : getAllActiveEsp32Sessions().filter((s) => s.userId === reminder.userId.toString());
-
-      for (const session of targetSessions) {
-        if (session) {
-          logger.info({ deviceId: session.deviceId, title: reminder.title }, 'Ringing physical alarm chime on ESP32 robot');
-
-          // Send control event
-          sendControlMessageToEsp32(session.deviceId, 'reminder:alert', {
-            reminderId: reminder.id,
-            title: reminder.title,
-            playAlarm: true,
-            timestamp: Date.now(),
-          });
-
-          // Stream alarm chime PCM audio directly to robot speaker
-          const alarmPcm = generateAlarmToneBuffer(2.5, 16000);
-          sendControlMessageToEsp32(session.deviceId, 'audio:response:start', {
-            sessionId: `alarm_${reminder.id}_${Date.now()}`,
-            format: 'pcm_16bit',
-            sampleRate: 16000,
-            channels: 1,
-          });
-
-          session.state = 'speaking';
-          dashboardBroadcast.emitRobotState(session.deviceId, reminder.userId.toString(), 'speaking');
-
-          const chunkSize = 4096;
-          for (let offset = 0; offset < alarmPcm.length; offset += chunkSize) {
-            const chunk = alarmPcm.subarray(offset, Math.min(offset + chunkSize, alarmPcm.length));
-            sendAudioChunkToEsp32(session.deviceId, chunk);
-          }
-
-          setTimeout(() => {
-            if (session) {
-              sendControlMessageToEsp32(session.deviceId, 'audio:response:end', {
-                sessionId: `alarm_${reminder.id}`,
-              });
-              session.state = 'idle';
-              dashboardBroadcast.emitRobotState(session.deviceId, reminder.userId.toString(), 'idle');
-            }
-          }, 2600);
-        }
+      const results = await Promise.allSettled(targetSessions.map(ringReminderOnRobot));
+      for (const result of results) {
+        if (result.status === 'rejected') logger.warn({ reminderId, err: result.reason }, 'Robot reminder failed');
       }
 
       // 4. Calculate next occurrence if recurring
