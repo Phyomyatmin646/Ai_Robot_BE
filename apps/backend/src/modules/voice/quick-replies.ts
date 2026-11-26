@@ -10,6 +10,7 @@ interface QuickReply {
 
 const assetDirectory = new URL('../../../assets/quick-replies/', import.meta.url);
 const replies = new Map<string, QuickReply>();
+const repliesById = new Map<string, QuickReply>();
 const pcmCache = new Map<string, Buffer>();
 const retryReply: QuickReply = {
   id: 'practice-retry',
@@ -35,6 +36,7 @@ function normalizeAlias(text: string): string {
 try {
   const catalog = JSON.parse(readFileSync(new URL('replies.json', assetDirectory), 'utf8')) as QuickReply[];
   for (const reply of catalog) {
+    repliesById.set(reply.id, reply);
     for (const alias of reply.aliases) replies.set(normalizeAlias(alias), reply);
   }
 } catch (err) {
@@ -58,8 +60,24 @@ function loadReply(reply: QuickReply) {
 
 export function getQuickReply(question: string, previousReplyId?: string) {
   const reply = replies.get(normalizeAlias(question));
+  return loadAvailableReply(reply, previousReplyId);
+}
+
+function loadAvailableReply(reply: QuickReply | undefined, previousReplyId?: string) {
   if (!reply || (reply.requiresPreviousReply && reply.requiresPreviousReply !== previousReplyId)) return undefined;
   return loadReply(reply);
+}
+
+export function getQuickReplyById(id: string, previousReplyId?: string) {
+  return loadAvailableReply(repliesById.get(id), previousReplyId);
+}
+
+export function getPracticeReplyOptions() {
+  return [...repliesById.values()].map(({ id, aliases, requiresPreviousReply }) => ({
+    id,
+    examples: aliases.filter((alias, index) => index < 2 || /\p{Script=Myanmar}/u.test(alias)).slice(0, 7),
+    requiresPreviousReply,
+  }));
 }
 
 export function getRetryReply() {
