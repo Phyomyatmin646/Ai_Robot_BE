@@ -60,7 +60,12 @@
       "practice a b c d",
       "abcd ဆိုပြ",
       "abcd ပြောပြ",
-      "a b c d ပြောပြပါ"
+      "a b c d ပြောပြပါ",
+      "အေ ဘီ စီ ဒီ ဆိုပြပါ",
+      "အေ ဘီ စီ ဒီ ပြောပြပါ",
+      "အေ ဘီ စီ ဒီ ဖတ်ပြပါ",
+      "အေ ဘီ စီ ဒီ",
+      "အေ ဘီ စီ နဲ့ ဒီ ဆိုပြပါ"
     ],
     "text": "A. B. C. D. Now you try!"
   },
@@ -72,7 +77,12 @@
       "tell me the alphabet",
       "say the abcs",
       "tell me the abcs",
-      "recite the abcs"
+      "recite the abcs",
+      "အင်္ဂလိပ် အက္ခရာတွေ ရွတ်ပြပါ",
+      "အင်္ဂလိပ် အက္ခရာတွေ ပြောပြပါ",
+      "အင်္ဂလိပ် အက္ခရာ အစုံ ရွတ်ပြပါ",
+      "အေကနေ ဇက်အထိ ရွတ်ပြပါ",
+      "အေကနေ ဇီအထိ ရွတ်ပြပါ"
     ],
     "text": "A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P, Q, R, S, T, U, V, W, X, Y, Z."
   },
@@ -85,7 +95,9 @@
       "memo ရေ တစ်ကနေ ငါးအထိ ရေတွက်ပြပါ",
       "မေမိုရေ တစ်ကနေ ငါးအထိ ရေတွက်ပြပါ",
       "တစ်ကနေ ငါးအထိ ရေတွက်ပြပါ",
-      "တစ်ကနေငါးအထိရေတွက်ပြပါ"
+      "တစ်ကနေငါးအထိရေတွက်ပြပါ",
+      "တစ်ကနေ ငါးအထိ ရေတွက်ပြ",
+      "၁ ကနေ ၅ အထိ ရေတွက်ပြပါ"
     ],
     "text": "One, two, three, four, five!"
   },
@@ -95,7 +107,13 @@
       "what sound does a make",
       "what sound does the letter a make",
       "teach me the letter a",
-      "what is a for"
+      "what is a for",
+      "အေ စာလုံးက ဘာအသံထွက်လဲ",
+      "အေက ဘာအသံထွက်လဲ",
+      "အေ စာလုံး သင်ပေးပါ",
+      "အေက ဘာအတွက်လဲ",
+      "a စာလုံးက ဘာအသံထွက်လဲ",
+      "အေ ရဲ့ အသံထွက်က ဘာလဲ"
     ],
     "text": "A is for apple. Apple begins with the short A sound."
   },
@@ -105,7 +123,13 @@
       "what sound does b make",
       "what sound does the letter b make",
       "teach me the letter b",
-      "what is b for"
+      "what is b for",
+      "ဘီ စာလုံးက ဘာအသံထွက်လဲ",
+      "ဘီက ဘာအသံထွက်လဲ",
+      "ဘီ စာလုံး သင်ပေးပါ",
+      "ဘီက ဘာအတွက်လဲ",
+      "b စာလုံးက ဘာအသံထွက်လဲ",
+      "ဘီ ရဲ့ အသံထွက်က ဘာလဲ"
     ],
     "text": "B is for ball. Ball and bear begin with the same sound."
   },
@@ -132,7 +156,11 @@
       "memo ရေ ဒီနေ့တော့ ဒီလောက်ပဲနော် bye bye",
       "မေမိုရေ ဒီနေ့တော့ ဒီလောက်ပဲနော် bye bye",
       "ဒီနေ့တော့ ဒီလောက်ပဲနော် bye bye",
-      "ဒီနေ့တော့ ဒီလောက်ပဲနော် ဘိုင်ဘိုင်"
+      "ဒီနေ့တော့ ဒီလောက်ပဲနော် ဘိုင်ဘိုင်",
+      "ဘိုင်ဘိုင်",
+      "နှုတ်ဆက်ပါတယ်",
+      "နောက်မှ တွေ့မယ်",
+      "ကောင်းသောညပါ"
     ],
     "text": "Bye! See you next time."
   },
@@ -193,16 +221,7 @@
       "give me a riddle",
       "memo ရေ ပဟေဠိမေးပါဦး",
       "မေမိုရေ ပဟေဠိမေးပါဦး",
-      "ပဟေဠိမေးပါဦး",
-      "play a game",
-      "lets play a game",
-      "play a fun game",
-      "lets play a fun game",
-      "fun game",
-      "play a riddle game",
-      "game ကစားမယ်",
-      "ဂိမ်းကစားမယ်",
-      "ဂိမ်းကစားကြမယ်"
+      "ပဟေဠိမေးပါဦး"
     ],
     "text": "Here's a riddle. Which big animal has a long trunk and likes to eat green leaves?"
   },
@@ -255,7 +274,10 @@
       "မေမိုရေ ၂ ပေါင်း ၃ ဘယ်လောက်လဲ",
       "၂ ပေါင်း ၃ ဘယ်လောက်လဲ",
       "၂ပေါင်း၃ဘယ်လောက်လဲ",
-      "2 ပေါင်း 3 ဘယ်လောက်လဲ"
+      "2 ပေါင်း 3 ဘယ်လောက်လဲ",
+      "နှစ် ပေါင်း သုံး ဘယ်လောက်လဲ",
+      "နှစ် ပေါင်း သုံး က ဘယ်လောက်လဲ",
+      "၂ ပေါင်း ၃ က ဘယ်လောက်လဲ"
     ],
     "text": "Two plus three equals five! Hold up two fingers, then three more. Now count all five."
   }

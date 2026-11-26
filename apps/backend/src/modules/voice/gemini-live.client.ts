@@ -2,7 +2,6 @@ import { WebSocket } from 'ws';
 import { logger } from '../../utils/logger.js';
 import { config } from '../../config/index.js';
 import {
-  sendPlaybackPcmToEsp32,
   sendAudioCancelToEsp32,
   sendControlMessageToEsp32,
   Esp32DeviceSession,
@@ -12,8 +11,8 @@ import {
 import { streamRecordedPcm } from '../../websocket/pcm-playback.js';
 import { dashboardBroadcast } from '../../websocket/dashboard.gateway.js';
 import { LatencyMetrics } from '@ai-robot/shared-types';
-import { getQuickReply, normalizeQuestion } from './quick-replies.js';
-import { levelRecordedSpeech, SpeechLeveler } from './speech-level.js';
+import { getQuickReply, getRetryReply, normalizeQuestion } from './quick-replies.js';
+import { levelRecordedSpeech } from './speech-level.js';
 
 export const DEFAULT_CHILD_SAFE_MEMO_PROMPT = `You are "Memo" (မေမို), a friendly, cheerful, loving, and educational AI companion robot designed specifically for children.
 
@@ -33,10 +32,6 @@ STRICT CHILD SAFETY GUARDRAILS (CRITICAL & ABSOLUTE):
    - Redirect in English, for example: "Would you like to hear a fun story about animals instead?"
 5. ENCOURAGE POSITIVITY & LEARNING: Promote kindness, curiosity, reading, healthy habits, helping parents, and respect for teachers and friends.`;
 
-const ACTIVITY_REPLIES = new Set([
-  'abcd', 'alphabet', 'rabbit-story', 'elephant-riddle', 'elephant-riddle-answer',
-]);
-
 export interface GeminiLiveSessionConfig {
   sessionId: string;
   deviceId: string;
@@ -55,8 +50,6 @@ export class GeminiLiveSession {
   private latencyMetrics: LatencyMetrics;
   private pendingAudioChunks: Buffer[] = [];
   private pendingTurnComplete = false;
-  private audioReady = false;
-  private quickReplyPlayed = false;
   private inputEndedAt = 0;
   private activityTranscript = '';
   private activityTranscriptIncomplete = false;
@@ -64,7 +57,7 @@ export class GeminiLiveSession {
   private inputActivity = false;
   private utterance = 0;
   private responseUtterance = 0;
-  private speechLeveler = new SpeechLeveler();
+  private pendingUtterances: number[] = [];
 
   constructor(public readonly configData: GeminiLiveSessionConfig) {
     this.latencyMetrics = {
@@ -178,7 +171,7 @@ export class GeminiLiveSession {
         systemInstruction: {
           parts: [
             {
-              text: basePrompt,
+              text: basePrompt + '\nReply briefly with a single word. The device uses the input transcript to select a recorded answer.',
             },
           ],
         },
@@ -333,54 +326,50 @@ export class GeminiLiveSession {
       this.ws.send(JSON.stringify({ realtimeInput: { activityEnd: {} } }));
       this.inputActivity = false;
       this.inputEndedAt = Date.now();
+      this.pendingUtterances.push(this.utterance);
     }
 
   }
 
-  private async beginPlayback(device: Esp32DeviceSession, source?: 'quick_reply'): Promise<boolean> {
+  private async playQuickReply(device: Esp32DeviceSession): Promise<void> {
     const { deviceId, sessionId, userId } = this.configData;
-    this.latencyMetrics.firstAudioResponse = Date.now();
-    this.responseUtterance = this.utterance;
-    this.speechLeveler = new SpeechLeveler();
+    const utterance = this.utterance;
+    this.responseUtterance = utterance;
+    const reply = (!this.activityTranscriptIncomplete &&
+      getQuickReply(this.activityTranscript, this.previousQuickReplyId)) || getRetryReply();
+    // Keep the riddle answer available while the child retries hearing or recognition.
+    if (reply && reply.id !== 'practice-retry') this.previousQuickReplyId = undefined;
+    const current = () => this.isConnected && getActiveEsp32Session(deviceId) === device
+      && device.activeSessionId === sessionId && this.utterance === utterance && !this.inputActivity;
+    if (!reply) {
+      sendAudioCancelToEsp32(deviceId, 'practice_reply_unavailable');
+      device.state = 'idle';
+      dashboardBroadcast.emitRobotState(deviceId, userId, 'idle', sessionId);
+      return;
+    }
+
     const readyAck = waitForEsp32AudioReady(deviceId, sessionId, 800);
-    sendControlMessageToEsp32(deviceId, 'audio:response:start', {
-      sessionId, source, wireCodec: device.playbackCodec, format: 'pcm_16bit', sampleRate: 24000, channels: 1,
-    });
+    if (!sendControlMessageToEsp32(deviceId, 'audio:response:start', {
+      sessionId, source: 'quick_reply', wireCodec: device.playbackCodec, format: 'pcm_16bit',
+      sampleRate: 24000, channels: 1,
+    })) return;
+
     device.state = 'speaking';
     dashboardBroadcast.emitRobotState(deviceId, userId, 'speaking', sessionId);
-    const ready = await readyAck;
-    if (getActiveEsp32Session(deviceId) !== device || device.activeSessionId !== sessionId ||
-        this.responseUtterance !== this.utterance || this.inputActivity) return false;
-    if (ready) this.latencyMetrics.playbackStart = Date.now();
-    else logger.error({ deviceId, sessionId }, 'ESP32 audio readiness handshake failed. Aborting audio turn.');
-    return ready;
-  }
-
-  private async playQuickReply(device: Esp32DeviceSession, reply: NonNullable<ReturnType<typeof getQuickReply>>) {
-    const { deviceId, sessionId, userId } = this.configData;
-    this.quickReplyPlayed = true;
-    this.previousQuickReplyId = undefined;
-    this.audioReady = await this.beginPlayback(device, 'quick_reply');
-    if (!this.audioReady) return;
-    const canPlay = () => this.isConnected
-      && getActiveEsp32Session(deviceId) === device
-      && device.activeSessionId === sessionId
-      && device.state === 'speaking'
-      && this.responseUtterance === this.utterance
-      && !this.inputActivity;
-    logger.info({ replyId: reply.id, sessionId, speechEndToReadyMs: Date.now() - this.inputEndedAt }, 'Playing prerecorded voice reply');
-    dashboardBroadcast.emitTranscription(userId, sessionId, reply.text, true, 'assistant');
+    const canPlay = () => current() && device.state === 'speaking' && device.outputSessionId === sessionId;
     let complete = false;
     try {
-      complete = await streamRecordedPcm(deviceId, sessionId, [levelRecordedSpeech(reply.pcm)], canPlay);
+      if (await readyAck && canPlay()) {
+        logger.info({ replyId: reply.id, sessionId, speechEndToReadyMs: Date.now() - this.inputEndedAt }, 'Playing prerecorded voice reply');
+        dashboardBroadcast.emitTranscription(userId, sessionId, reply.text, true, 'assistant');
+        complete = await streamRecordedPcm(deviceId, sessionId, [levelRecordedSpeech(reply.pcm)], canPlay);
+      }
     } catch (err) {
       logger.error({ err, sessionId }, 'Prerecorded voice playback stalled');
-    } finally {
-      this.audioReady = false;
     }
     if (!canPlay()) return;
     if (complete) {
-      this.previousQuickReplyId = reply.id;
+      if (reply.id !== 'practice-retry') this.previousQuickReplyId = reply.id;
       sendControlMessageToEsp32(deviceId, 'audio:response:end', { sessionId });
     } else {
       sendAudioCancelToEsp32(deviceId, 'quick_reply_delivery_stalled');
@@ -418,140 +407,32 @@ export class GeminiLiveSession {
       if (activeDevice?.activeSessionId !== this.configData.sessionId) return;
 
       const content = response.serverContent;
-      const capturing = this.inputActivity || activeDevice.state === 'listening';
-      const staleResponse = this.responseUtterance !== 0 && this.responseUtterance !== this.utterance;
-      const awaitingPlayback = Boolean(this.inputEndedAt) && !capturing && !staleResponse;
-      if (content?.interrupted) {
-        if (!this.quickReplyPlayed) this.previousQuickReplyId = undefined;
-        logger.info({ sessionId: this.configData.sessionId }, 'Gemini Live detected user barge-in interruption');
-        if (!capturing && !staleResponse && !this.quickReplyPlayed) {
-          sendAudioCancelToEsp32(this.configData.deviceId, 'interruption');
-        }
-        if (!content.turnComplete) return;
-      }
+      if (!content) return;
 
-      const transcript = content?.inputTranscription;
-      if (awaitingPlayback && !content?.interrupted && activeDevice.state === 'thinking' &&
-          !this.latencyMetrics.firstAudioResponse && typeof transcript?.text === 'string') {
+      const pending = this.pendingUtterances[0];
+      if (content.turnComplete) this.pendingUtterances.shift();
+      const upstreamUtterance = pending ?? this.utterance;
+      if (upstreamUtterance !== this.utterance || this.responseUtterance === this.utterance || content.interrupted) return;
+
+      const transcript = content.inputTranscription;
+      if (typeof transcript?.text === 'string') {
         const text = normalizeQuestion(transcript.text);
         if (text) {
-          // Input transcription may be split across events or repeated as a growing snapshot.
           const previous = this.activityTranscript;
-          if (transcript.finished === true && this.activityTranscriptIncomplete) {
-            this.activityTranscript = text;
-          } else if (!previous || text.startsWith(previous + ' ')) {
+          if (!previous || text.startsWith(previous + ' ') ||
+              (transcript.finished === true && this.activityTranscriptIncomplete)) {
             this.activityTranscript = text;
           } else if (text !== previous) {
             this.activityTranscript += ' ' + text;
           }
-          this.activityTranscriptIncomplete = transcript.finished === false;
-          if (transcript.finished === true) {
-            const reply = getQuickReply(this.activityTranscript, this.previousQuickReplyId);
-            if (reply && (this.utterance === 1 || ACTIVITY_REPLIES.has(reply.id))) {
-              await this.playQuickReply(activeDevice, reply);
-            }
-          }
         }
+        if (text || transcript.finished === true) this.activityTranscriptIncomplete = transcript.finished === false;
       }
 
-      const modelTurn = awaitingPlayback && !content?.interrupted ? content?.modelTurn : undefined;
-      if (modelTurn?.parts) {
-        for (const part of modelTurn.parts) {
-          // If text transcription part is returned
-          if (part.text && !this.quickReplyPlayed) {
-            if (this.latencyMetrics.firstAiResponse === 0) {
-              this.latencyMetrics.firstAiResponse = Date.now();
-            }
-            dashboardBroadcast.emitTranscription(
-              this.configData.userId,
-              this.configData.sessionId,
-              part.text,
-              false,
-              'assistant'
-            );
-          }
-
-          // If raw PCM audio part is returned
-          if (part.inlineData?.data && !this.quickReplyPlayed) {
-            const pcmBuffer = Buffer.from(part.inlineData.data, 'base64');
-
-            if (this.latencyMetrics.firstAudioResponse === 0) {
-              // Some Gemini models do not send a finished flag. At first model audio,
-              // allow an exact activity request, while general follow-ups stay with Gemini.
-              const activity = !this.activityTranscriptIncomplete
-                ? getQuickReply(this.activityTranscript, this.previousQuickReplyId)
-                : undefined;
-              if (activity && ACTIVITY_REPLIES.has(activity.id)) {
-                await this.playQuickReply(activeDevice, activity);
-                continue;
-              }
-              this.previousQuickReplyId = undefined;
-              this.audioReady = await this.beginPlayback(activeDevice);
-            }
-
-            if (!this.audioReady) continue;
-            const sessionId = this.configData.sessionId;
-            const canPlay = () => this.isConnected
-              && getActiveEsp32Session(this.configData.deviceId) === activeDevice
-              && activeDevice.activeSessionId === sessionId
-              && activeDevice.state === 'speaking'
-              && this.responseUtterance === this.utterance
-              && !this.inputActivity;
-            const deadline = performance.now() + 8000;
-            while (activeDevice.playbackCodec && canPlay() &&
-                   (activeDevice.pausedPlaybackSessionId === sessionId || activeDevice.socket.bufferedAmount >= 4096)) {
-              if (performance.now() >= deadline) {
-                this.audioReady = false;
-                sendAudioCancelToEsp32(this.configData.deviceId, 'gemini_audio_delivery_stalled');
-                break;
-              }
-              await new Promise<void>((resolve) => setTimeout(resolve, 20));
-            }
-            if (!canPlay()) return;
-            if (this.audioReady && !sendPlaybackPcmToEsp32(
-              this.configData.deviceId, this.speechLeveler.apply(pcmBuffer), activeDevice.playbackCodec,
-            )) this.audioReady = false;
-          }
-        }
-      }
-
-      // Check if turn is complete
-      if (content?.turnComplete) {
-        const newerInput = this.inputActivity || capturing ||
-          (!content.interrupted && activeDevice.state === 'listening') ||
-          (this.responseUtterance !== 0 && this.responseUtterance !== this.utterance);
-        this.latencyMetrics.totalDuration = Date.now() - this.latencyMetrics.audioCaptureStart;
-
-        if (!newerInput && !this.quickReplyPlayed) {
-          this.previousQuickReplyId = undefined;
-          if (this.audioReady) {
-            sendControlMessageToEsp32(this.configData.deviceId, 'audio:response:end', {
-              sessionId: this.configData.sessionId,
-              duration: this.latencyMetrics.totalDuration,
-            });
-          } else {
-            sendAudioCancelToEsp32(this.configData.deviceId, 'gemini_no_playable_audio');
-          }
-          activeDevice.state = 'idle';
-          dashboardBroadcast.emitRobotState(
-            this.configData.deviceId, this.configData.userId, 'idle', this.configData.sessionId,
-          );
-        } else if (!newerInput && activeDevice.state === 'speaking' && !this.audioReady) {
-          sendAudioCancelToEsp32(this.configData.deviceId, 'quick_reply_not_ready');
-          activeDevice.state = 'idle';
-          dashboardBroadcast.emitRobotState(
-            this.configData.deviceId, this.configData.userId, 'idle', this.configData.sessionId,
-          );
-        }
-        this.audioReady = false;
-        this.quickReplyPlayed = false;
-        this.responseUtterance = 0;
-        if (!newerInput) this.inputEndedAt = 0;
-
-        // Reset turn response markers for next turn
-        this.latencyMetrics.firstAiResponse = 0;
-        this.latencyMetrics.firstAudioResponse = 0;
-        this.latencyMetrics.playbackStart = 0;
+      if (pending === undefined || !this.inputEndedAt || this.inputActivity || activeDevice.state !== 'thinking') return;
+      if (transcript?.finished === true || content.turnComplete ||
+          (content.generationComplete && this.activityTranscript && !this.activityTranscriptIncomplete)) {
+        await this.playQuickReply(activeDevice);
       }
     } catch (err) {
       logger.error({ err }, 'Error handling Gemini Live message');
